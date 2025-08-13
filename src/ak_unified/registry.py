@@ -2548,3 +2548,57 @@ register(
 )
 
 # NOTE: ACCOUNT_KEY_MAP could be externalized via a YAML/JSON config loaded at runtime for extensibility.
+
+# HK/US financial statements (raw; TODO unify mapping when sources stabilize)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.financials.is",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_financial_hk_report_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.financials.is",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=["stock_financial_us_report_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+# Dividends for HK/US: TODO - AkShare lacks unified dividend endpoints for HK/US; expose placeholders
+
+def _compute_dividends_placeholder(params: Dict[str, Any]) -> pd.DataFrame:
+    import pandas as _pd
+    return _pd.DataFrame([{"note": "TODO: HK/US dividend endpoints not unified in AkShare; integrate external if needed"}])
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.dividends",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_dividends_placeholder,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.dividends",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_dividends_placeholder,
+    )
+)
+
+# Governance datasets (CN already added): stock_hold_management_person_em etc.
+# TODO: Add HK/US governance if AkShare exposes endpoints in future.
