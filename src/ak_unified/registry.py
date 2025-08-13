@@ -1503,3 +1503,190 @@ register(
         compute=_compute_risk_appetite,
     )
 )
+
+def _compute_board_heatmap(params: Dict[str, Any]) -> pd.DataFrame:
+    # board_kind: industry|concept
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
+    kind = (params.get("board_kind") or "industry").lower()
+    # prefer THS summary for richer columns when available
+    ds = (
+        "securities.board.cn.industry.summary_ths" if kind == "industry" else "securities.board.cn.concept.summary_ths"
+    )
+    try:
+        env = _fetch(ds, {})
+        df = _pd.DataFrame(env.data)
+        if not df.empty and ("涨跌幅" in df.columns or "涨跌幅(%)" in df.columns):
+            chg_col = "涨跌幅" if "涨跌幅" in df.columns else "涨跌幅(%)"
+            pct = _pd.to_numeric(df[chg_col], errors="coerce")
+            rank = pct.rank(pct=True)
+            out = _pd.DataFrame({
+                "board_name": df.get("板块") or df.get("概念名称"),
+                "pct_change": pct,
+                "amount": _pd.to_numeric(df.get("总成交额"), errors="coerce") if "总成交额" in df.columns else _pd.Series([_np.nan]*len(df)),
+                "zscore_pct_change": (pct - pct.mean())/pct.std() if pct.std() not in (0,_np.nan) else pct*_np.nan,
+                "pct_rank": rank,
+                "leader": df.get("领涨股"),
+            })
+            return out.dropna(subset=["pct_change"], how="all")
+    except Exception:
+        pass
+
+    # fallback to EM spot (limited fields)
+    ds2 = "securities.board.cn.industry.spot" if kind == "industry" else "securities.board.cn.concept.spot"
+    env = _fetch(ds2, {})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return _pd.DataFrame([])
+    pct = _pd.to_numeric(df.get("pct_change"), errors="coerce")
+    if not isinstance(pct, _pd.Series):
+        pct = _pd.Series(pct)
+    turnover = _pd.to_numeric(df.get("换手率"), errors="coerce") if "换手率" in df.columns else _pd.Series([_np.nan]*len(df))
+    amount = _pd.to_numeric(df.get("成交额"), errors="coerce") if "成交额" in df.columns else _pd.Series([_np.nan]*len(df))
+    z = (pct - pct.mean()) / pct.std() if pct.std() not in (0, _np.nan) else pct * _np.nan
+    rank = pct.rank(pct=True)
+    out = _pd.DataFrame({
+        "board_name": df.get("board_name"),
+        "pct_change": pct,
+        "turnover_rate": turnover,
+        "amount": amount,
+        "zscore_pct_change": z,
+        "pct_rank": rank,
+    })
+    return out.dropna(subset=["pct_change"], how="all")
+
+
+def _compute_cross_section_valuation(params: Dict[str, Any]) -> pd.DataFrame:
+    # industry-level valuation heatmap using CNINFO pe_ratio snapshot
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
+    date = params.get("date") or "20210910"
+    env = _fetch("securities.industry.cn.pe_ratio_cninfo", {"date": date, "symbol": params.get("symbol") or "证监会行业分类"})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return df
+    # try detect PE column
+    pe_col = None
+    for c in ["市盈率", "PE", "平均市盈率", "行业市盈率"]:
+        if c in df.columns:
+            pe_col = c
+            break
+    if pe_col is None:
+        return df
+    pe = _pd.to_numeric(df[pe_col], errors="coerce")
+    rank = pe.rank(pct=True)
+    z = (pe - pe.mean()) / pe.std() if pe.std() not in (0, _np.nan) else pe * _np.nan
+    # industry name column guess
+    name_col = None
+    for c in ["行业名称", "行业", "名称", "分类名称", "板块名称", "board_name"]:
+        if c in df.columns:
+            name_col = c
+            break
+    out = _pd.DataFrame({
+        "industry": df.get(name_col, df.index.astype(str)),
+        "pe": pe,
+        "pe_percentile": rank,
+        "pe_zscore": z,
+        "date": date,
+        "note": "TODO: add PB/PS if available; concept valuation not covered",
+    })
+    return out.dropna(subset=["pe"], how="all")
+
+
+def _compute_relative_strength(params: Dict[str, Any]) -> pd.DataFrame:
+    # snapshot-based RS across boards
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    kind = (params.get("board_kind") or "industry").lower()
+    ds = "securities.board.cn.industry.spot" if kind == "industry" else "securities.board.cn.concept.spot"
+    env = _fetch(ds, {})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return _pd.DataFrame([])
+    df_out = df[["board_code", "board_name", "pct_change"]].copy()
+    df_out["rs_percentile"] = df_out["pct_change"].rank(pct=True)
+    return df_out.sort_values("rs_percentile", ascending=False)
+
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.board_heatmap",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_board_heatmap,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.cross_section_valuation",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_cross_section_valuation,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.relative_strength",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_relative_strength,
+    )
+)
+
+# THS names and summaries
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.name_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_name_ths"],
+        source="ths",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.name_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_name_ths"],
+        source="ths",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.summary_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_summary_ths"],
+        source="ths",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.summary_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_summary_ths"],
+        source="ths",
+        param_transform=_noop_params,
+    )
+)
