@@ -384,3 +384,386 @@ register(
         postprocess=_bond_china_yield_post,
     )
 )
+
+def _strip_suffix(code: Optional[str]) -> str:
+    if not code:
+        return ""
+    return code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+
+
+def _minute_period_map(freq: Optional[str]) -> str:
+    mapping = {
+        "min1": "1",
+        "min5": "5",
+        "min15": "15",
+        "min30": "30",
+        "min60": "60",
+        "1": "1",
+        "5": "5",
+        "15": "15",
+        "30": "30",
+        "60": "60",
+    }
+    return mapping.get((freq or "min1").lower(), "1")
+
+
+def _eq_min_params(p: Dict[str, Any]) -> Dict[str, Any]:
+    symbol = _strip_suffix(p.get("symbol") or p.get("code"))
+    freq = _minute_period_map(p.get("freq") or p.get("period"))
+    adjust = {"none": "", "qfq": "qfq", "hfq": "hfq"}.get((p.get("adjust") or "none"), "")
+    return {"symbol": symbol, "period": freq, "adjust": adjust}
+
+
+def _fut_min_params(p: Dict[str, Any]) -> Dict[str, Any]:
+    contract = p.get("contract") or p.get("symbol")
+    freq = _minute_period_map(p.get("freq") or p.get("period"))
+    return {"symbol": contract, "period": freq}
+
+# Common minute field mapping
+FIELD_MIN_OHLCV_CN: FieldMap = {
+    "时间": "datetime",
+    "开盘": "open",
+    "最高": "high",
+    "最低": "low",
+    "收盘": "close",
+    "成交量": "volume",
+    "成交额": "amount",
+}
+
+# -------- Macro employment postprocessors --------
+
+def _macro_cn_unemployment_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    date_col = "月份" if "月份" in df.columns else df.columns[0]
+    # try common value columns
+    for col in ["城镇调查失业率", "失业率", "就业人数"]:
+        if col in df.columns:
+            value_col = col
+            break
+    else:
+        # fallback to second column
+        value_col = df.columns[1]
+    out = pd.DataFrame({
+        "region": "CN",
+        "indicator_id": "unemployment_rate",
+        "indicator_name": "城镇调查失业率",
+        "date": df[date_col],
+        "value": pd.to_numeric(df[value_col], errors="coerce"),
+        "unit": "pct",
+        "period": "M",
+        "source": "akshare",
+    })
+    return out.dropna(subset=["value"])
+
+
+def _macro_us_unemployment_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    date_col = "时间" if "时间" in df.columns else ("日期" if "日期" in df.columns else df.columns[0])
+    # try to find unemployment rate
+    value_col = None
+    for col in ["失业率", "失业人数", "就业人数", "非农就业人数"]:
+        if col in df.columns:
+            value_col = col
+            break
+    if value_col is None:
+        value_col = df.columns[1]
+    indicator_id = "unemployment_rate" if "率" in value_col else "employment"
+    indicator_name = "失业率" if "率" in value_col else "就业/非农"
+    out = pd.DataFrame({
+        "region": "US",
+        "indicator_id": indicator_id,
+        "indicator_name": indicator_name,
+        "date": df[date_col],
+        "value": pd.to_numeric(df[value_col], errors="coerce"),
+        "unit": "pct" if indicator_id == "unemployment_rate" else "persons_thousands",
+        "period": "M",
+        "source": "akshare",
+    })
+    return out.dropna(subset=["value"])
+
+# -------- Boards field mappings --------
+FIELD_BOARD_NAME: FieldMap = {"板块名称": "board_name", "板块代码": "board_code"}
+FIELD_BOARD_SPOT: FieldMap = {"板块名称": "board_name", "板块代码": "board_code", "涨跌幅": "pct_change", "领涨股": "leader"}
+FIELD_BOARD_CONS: FieldMap = {"代码": "symbol", "名称": "symbol_name"}
+FIELD_BOARD_OHLCV: FieldMap = FIELD_OHLCV_CN | {"时间": "datetime"}
+
+# -------- LHB field mappings (subset) --------
+FIELD_LHB_DAILY: FieldMap = {"日期": "date", "上榜次数": "times", "买入额": "buy", "卖出额": "sell", "净额": "net"}
+FIELD_LHB_STOCK_DETAIL: FieldMap = {"日期": "date", "收盘价": "close", "涨跌幅": "pct_change", "买入额": "buy", "卖出额": "sell", "净额": "net"}
+FIELD_LHB_YYB_DETAIL: FieldMap = {"营业部名称": "broker_name", "买入额": "buy", "卖出额": "sell", "净额": "net"}
+
+# -------- Fund info mappings --------
+FIELD_FUND_MANAGER: FieldMap = {"姓名": "manager_name", "所属公司": "company_name", "累计从业时间": "career_years", "现任基金": "funds_current"}
+FIELD_FUND_RATING: FieldMap = {"基金代码": "fund_code", "基金简称": "fund_name", "评级": "rating"}
+FIELD_FUND_SCALE: FieldMap = {"基金代码": "fund_code", "基金简称": "fund_name", "基金规模": "fund_scale", "成立日期": "established"}
+
+# ---------- New dataset registrations ----------
+
+# Minute OHLCV for A-shares
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_min",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_zh_a_hist_min_em", "stock_zh_a_hist_pre_min_em", "stock_zh_a_minute"],
+        source="em",
+        param_transform=_eq_min_params,
+        field_mapping=FIELD_MIN_OHLCV_CN,
+        freq_support=["min1", "min5", "min15", "min30", "min60"],
+    )
+)
+
+# Futures minute
+register(
+    DatasetSpec(
+        dataset_id="securities.futures.cn.min",
+        category="securities",
+        domain="securities.futures.cn",
+        ak_functions=["futures_zh_minute_sina"],
+        source="sina",
+        param_transform=_fut_min_params,
+        field_mapping=FIELD_MIN_OHLCV_CN,
+        freq_support=["min1", "min5", "min15", "min30", "min60"],
+    )
+)
+
+# Macro employment CN
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.employment",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_urban_unemployment", "macro_china_hk_rate_of_unemployment"],
+        source="stats",
+        param_transform=_noop_params,
+        postprocess=_macro_cn_unemployment_post,
+    )
+)
+
+# Macro employment US
+register(
+    DatasetSpec(
+        dataset_id="macro.us.employment",
+        category="macro",
+        domain="macro.us",
+        ak_functions=["macro_usa_unemployment_rate", "macro_usa_non_farm", "macro_usa_adp_employment"],
+        source="bls",
+        param_transform=_noop_params,
+        postprocess=_macro_us_unemployment_post,
+    )
+)
+
+# Boards - industry names (multi-source)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.list",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_name_em", "stock_board_industry_name_ths"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_BOARD_NAME,
+    )
+)
+
+# Boards - concept names (multi-source)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.list",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_name_em", "stock_board_concept_name_ths"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_BOARD_NAME,
+    )
+)
+
+# Boards - industry spot (em)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.spot",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_spot_em"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_BOARD_SPOT,
+    )
+)
+
+# Boards - concept spot (em)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.spot",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_spot_em"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_BOARD_SPOT,
+    )
+)
+
+# Boards - industry constituents
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.cons",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_cons_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_CONS,
+    )
+)
+
+# Boards - concept constituents
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.cons",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_cons_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_CONS,
+    )
+)
+
+# Boards - industry daily history
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.ohlcv_daily",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_OHLCV,
+    )
+)
+
+# Boards - concept daily history
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.ohlcv_daily",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_OHLCV,
+    )
+)
+
+# Boards - industry minute
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.ohlcv_min",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol"), "period": _minute_period_map(p.get("freq"))},
+        field_mapping=FIELD_MIN_OHLCV_CN,
+    )
+)
+
+# Boards - concept minute
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.ohlcv_min",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol"), "period": _minute_period_map(p.get("freq"))},
+        field_mapping=FIELD_MIN_OHLCV_CN,
+    )
+)
+
+# Beijing A-share spot
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.bj.quote",
+        category="securities",
+        domain="securities.equity.bj",
+        ak_functions=["stock_bj_a_spot_em"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping={"代码": "symbol", "名称": "symbol_name", "最新价": "last", "涨跌幅": "pct_change", "成交量": "volume", "成交额": "amount"},
+    )
+)
+
+# LHB datasets
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.lhb.daily",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_lhb_detail_em", "stock_lhb_detail_daily_sina"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_LHB_DAILY,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.lhb.stock_detail",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_lhb_stock_detail_em", "stock_lhb_stock_detail_date_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        field_mapping=FIELD_LHB_STOCK_DETAIL,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.lhb.broker_detail",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_lhb_yyb_detail_em"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_LHB_YYB_DETAIL,
+    )
+)
+
+# Fund info
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.manager",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_manager_em"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping=FIELD_FUND_MANAGER,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.rating",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_rating_all", "fund_rating_ja", "fund_rating_sh", "fund_rating_zs"],
+        source="multi",
+        param_transform=_noop_params,
+        field_mapping=FIELD_FUND_RATING,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.scale",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_scale_open_sina", "fund_scale_close_sina", "fund_scale_structured_sina", "fund_scale_change_em"],
+        source="multi",
+        param_transform=_noop_params,
+        field_mapping=FIELD_FUND_SCALE,
+    )
+)
