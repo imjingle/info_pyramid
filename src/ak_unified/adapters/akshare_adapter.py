@@ -38,31 +38,55 @@ def _normalize_types(df: pd.DataFrame) -> pd.DataFrame:
         try:
             df[c] = pd.to_numeric(df[c])
         except Exception:
-            # keep original if conversion fails
             pass
     return df
+
+
+def _call_single(ak_module, fn_name: str, params: Dict[str, Any]) -> pd.DataFrame:
+    fn = getattr(ak_module, fn_name, None)
+    if not callable(fn):
+        raise AkAdapterError(f"AkShare function not found: {fn_name}")
+    call_params = {k: v for k, v in params.items() if v is not None}
+    data = fn(**call_params) if call_params else fn()
+    return data.copy() if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
 
 
 def call_akshare(
     ak_functions: List[str],
     params: Dict[str, Any],
     field_mapping: Optional[Dict[str, str]] = None,
-    allow_empty: bool = True,
+    allow_fallback: bool = False,
+    function_name: Optional[str] = None,
 ) -> Tuple[str, pd.DataFrame]:
     ak = _import_akshare()
-    last_err: Optional[Exception] = None
-    for name in ak_functions:
-        fn = getattr(ak, name, None)
-        if not callable(fn):
-            continue
-        try:
-            call_params = {k: v for k, v in params.items() if v is not None}
-            data = fn(**call_params) if call_params else fn()
-            df = data.copy() if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+
+    if function_name:
+        df = _call_single(ak, function_name, params)
+        df = _rename_columns(df, field_mapping)
+        df = _ensure_symbol_column(df, params)
+        df = _normalize_types(df)
+        return function_name, df
+
+    if not allow_fallback:
+        if len(ak_functions) == 1:
+            fn = ak_functions[0]
+            df = _call_single(ak, fn, params)
             df = _rename_columns(df, field_mapping)
             df = _ensure_symbol_column(df, params)
             df = _normalize_types(df)
-            if not allow_empty and df.empty:
+            return fn, df
+        raise AkAdapterError(
+            f"Multiple candidate functions available, but no explicit choice provided: {ak_functions}"
+        )
+
+    last_err: Optional[Exception] = None
+    for name in ak_functions:
+        try:
+            df = _call_single(ak, name, params)
+            df = _rename_columns(df, field_mapping)
+            df = _ensure_symbol_column(df, params)
+            df = _normalize_types(df)
+            if df.empty:
                 last_err = AkAdapterError(f"Function {name} returned empty result")
                 continue
             return name, df

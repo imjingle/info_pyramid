@@ -45,29 +45,38 @@ def _envelope(
     )
 
 
-def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None) -> DataEnvelope:
+def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
     spec = _resolve_spec(dataset_id)
     params = params or {}
     ak_params = _apply_param_transform(spec, params)
-    _, df = call_akshare(spec.ak_functions, ak_params, field_mapping=spec.field_mapping)
+    fn_used, df = call_akshare(
+        spec.ak_functions,
+        ak_params,
+        field_mapping=spec.field_mapping,
+        allow_fallback=allow_fallback,
+        function_name=ak_function,
+    )
     df = _postprocess(spec, df, params)
     records = df.to_dict(orient="records")
-    return _envelope(spec, params, records)
+    env = _envelope(spec, params, records)
+    env.ak_function = fn_used
+    env.data_source = spec.source
+    return env
 
 
 # ------------- Convenience APIs -------------
 
-def get_ohlcv(symbol: str, start: Optional[str] = None, end: Optional[str] = None, adjust: str = "none") -> DataEnvelope:
+def get_ohlcv(symbol: str, start: Optional[str] = None, end: Optional[str] = None, adjust: str = "none", *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
     params = {"symbol": symbol, "start": start, "end": end, "adjust": adjust}
-    return fetch_data("securities.equity.cn.ohlcv_daily", params)
+    return fetch_data("securities.equity.cn.ohlcv_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_market_quote() -> DataEnvelope:
-    return fetch_data("securities.equity.cn.quote", {})
+def get_market_quote(*, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+    return fetch_data("securities.equity.cn.quote", {}, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_index_constituents(index_code: str) -> DataEnvelope:
-    return fetch_data("market.index.constituents", {"index_code": index_code})
+def get_index_constituents(index_code: str, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+    return fetch_data("market.index.constituents", {"index_code": index_code}, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
 def get_macro_indicator(region: str, indicator_id: str, **kwargs: Any) -> DataEnvelope:
@@ -80,14 +89,15 @@ def get_macro_indicator(region: str, indicator_id: str, **kwargs: Any) -> DataEn
     dataset = mapping.get(key)
     if not dataset:
         raise KeyError(f"Macro indicator not mapped: region={region} indicator_id={indicator_id}")
-    return fetch_data(dataset, kwargs)
+    ak_function = kwargs.pop("ak_function", None)
+    allow_fallback = kwargs.pop("allow_fallback", False)
+    return fetch_data(dataset, kwargs, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_fund_nav(fund_code: str, start: Optional[str] = None, end: Optional[str] = None) -> DataEnvelope:
-    # Heuristic: 6-digit code with leading 5/1 often ETF/LOF; allow caller to pass ETFs directly to ETF dataset
+def get_fund_nav(fund_code: str, start: Optional[str] = None, end: Optional[str] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
     is_etf_like = fund_code.isdigit() and fund_code.startswith(("5", "1"))
     dataset = "securities.fund.cn.nav" if is_etf_like else "securities.fund.cn.nav_open"
     params: Dict[str, Any] = {"fund_code": fund_code}
     if dataset == "securities.fund.cn.nav":
         params.update({"start": start, "end": end})
-    return fetch_data(dataset, params)
+    return fetch_data(dataset, params, ak_function=ak_function, allow_fallback=allow_fallback)
