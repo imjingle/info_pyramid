@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 ParamTransform = Callable[[Dict[str, Any]], Dict[str, Any]]
 FieldMap = Dict[str, str]
 PostProcess = Callable[["pd.DataFrame", Dict[str, Any]], "pd.DataFrame"]
+ComputeFunc = Callable[[Dict[str, Any]], "pd.DataFrame"]
 
 
 @dataclass
@@ -21,6 +22,7 @@ class DatasetSpec:
     freq_support: Optional[List[str]] = None
     adjust_support: Optional[List[str]] = None
     postprocess: Optional[PostProcess] = None
+    compute: Optional[ComputeFunc] = None
 
 
 REGISTRY: Dict[str, DatasetSpec] = {}
@@ -105,6 +107,7 @@ FIELD_FUND_FLOW_STOCK: FieldMap = {
 # ---------- Macro postprocessors ----------
 
 import pandas as pd  # noqa: E402
+import numpy as np  # type: ignore
 
 
 def _macro_ppi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -1216,5 +1219,97 @@ register(
         ak_functions=["stock_share_change_cninfo"],
         source="cninfo",
         param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol")), "start_date": _yyyymmdd(p.get("start")) or "20000101", "end_date": _yyyymmdd(p.get("end")) or "20991231"},
+    )
+)
+
+# -------- Computed datasets (heuristics; TODO: refine models) --------
+
+def _compute_economic_cycle_phase(params: Dict[str, Any]) -> pd.DataFrame:
+    # Inputs: GDP YoY (macro.cn.gdp), CPI YoY (macro.cn.cpi TODO), Policy rates (LPR/shibor), Social financing
+    # TODO: add CPI mapping; using available LPR + social financing as proxy for liquidity, GDP yoy for growth
+    from .dispatcher import fetch_data as _fetch
+
+    growth = _fetch("macro.cn.gdp", {}, ak_function="macro_china_gdp").data  # expects MacroIndicator gdp_yoy
+    lpr = _fetch("macro.cn.lpr", {}).data
+    social = _fetch("macro.cn.social_financing", {}, ak_function="macro_china_new_financial_credit").data
+
+    # Heuristic: latest YoY growth and liquidity change
+    def latest_number(lst, key):
+        for item in lst[:50]:
+            v = item.get(key)
+            if isinstance(v, (int, float)):
+                return float(v)
+        return np.nan
+
+    growth_yoy = latest_number(growth, "value") if growth else np.nan
+    lpr_level = np.nan
+    if lpr:
+        lpr_level = latest_number(lpr, list(lpr[0].keys())[1])
+    social_level = np.nan
+    if social:
+        social_level = latest_number(social, list(social[0].keys())[1])
+
+    # Simple rules (placeholder):
+    # boom if growth high and liquidity ample; slowdown if growth falling; recession if negative growth proxy
+    phase = "unknown"
+    if not np.isnan(growth_yoy) and growth_yoy >= 6:
+        phase = "expansion"
+    elif not np.isnan(growth_yoy) and 0 < growth_yoy < 6:
+        phase = "slowdown"
+    elif not np.isnan(growth_yoy) and growth_yoy <= 0:
+        phase = "recession"
+
+    return pd.DataFrame([
+        {
+            "phase": phase,
+            "growth_yoy": growth_yoy,
+            "lpr_level_proxy": lpr_level,
+            "social_financing_proxy": social_level,
+            "note": "TODO: incorporate CPI/PPI/PMI and rate of change with filters",
+        }
+    ])
+
+
+def _compute_retail_vs_institution_proxy(params: Dict[str, Any]) -> pd.DataFrame:
+    # Inputs: margin balance ratio/time series; turnover; northbound stats
+    from .dispatcher import fetch_data as _fetch
+
+    margin = _fetch("market.margin.cn.sse", {"start": params.get("start"), "end": params.get("end")}).data
+    hsgt = _fetch("market.hsgt.institution_stats", {"market": "北向持股", "start": params.get("start"), "end": params.get("end")}).data
+
+    margin_proxy = float(len(margin) or 0)
+    hsgt_proxy = float(len(hsgt) or 0)
+    # Placeholder scoring 0-1 normalized by arbitrary cap
+    retail_score = max(0.0, min(1.0, (margin_proxy / 5000.0)))
+    institution_score = max(0.0, min(1.0, (hsgt_proxy / 5000.0)))
+
+    return pd.DataFrame([
+        {
+            "retail_activity_score": retail_score,
+            "institution_activity_score": institution_score,
+            "note": "TODO: replace with turnover breakdown, account-level data, and proper normalization",
+        }
+    ])
+
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.economic_cycle_phase",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_economic_cycle_phase,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.retail_vs_institution_proxy",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_retail_vs_institution_proxy,
     )
 )

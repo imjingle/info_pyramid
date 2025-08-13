@@ -48,6 +48,16 @@ def _envelope(
 def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
     spec = _resolve_spec(dataset_id)
     params = params or {}
+
+    # computed dataset
+    if spec.compute is not None:
+        df = spec.compute(params)
+        records = df.to_dict(orient="records")
+        env = _envelope(spec, params, records)
+        env.ak_function = "computed"
+        env.data_source = spec.source or "computed"
+        return env
+
     ak_params = _apply_param_transform(spec, params)
     fn_used, df = call_akshare(
         spec.ak_functions,
