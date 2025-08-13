@@ -2305,3 +2305,103 @@ register(
         compute=lambda p: _compute_fundamentals_snapshot_hk_us(p, "us"),
     )
 )
+
+# HK/US spot quotes
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.quote",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_hk_spot_em", "stock_hk_spot"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping={"代码": "symbol", "名称": "symbol_name", "最新价": "last", "涨跌幅": "pct_change", "成交量": "volume", "成交额": "amount"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.quote",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=["stock_us_spot_em", "stock_us_spot"],
+        source="em",
+        param_transform=_noop_params,
+        field_mapping={"代码": "symbol", "名称": "symbol_name", "最新价": "last", "涨跌幅": "pct_change", "成交量": "volume", "成交额": "amount"},
+    )
+)
+
+# Cross-market fundamentals snapshot
+
+def _compute_fundamentals_snapshot_cross(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    symbol = params.get("symbol")
+    market = (params.get("market") or "CN").upper()
+    if not symbol:
+        return _pd.DataFrame([])
+
+    out = {"symbol": symbol, "market": market}
+
+    # Quote selection
+    try:
+        if market == "CN":
+            q = _pd.DataFrame(_fetch("securities.equity.cn.quote", {}).data)
+            if not q.empty:
+                hit = q[q["symbol"] == symbol]
+                if not hit.empty:
+                    out.update(hit.iloc[0].to_dict())
+        elif market == "HK":
+            q = _pd.DataFrame(_fetch("securities.equity.hk.quote", {}).data)
+            # users may pass numeric code; filter if present
+            if not q.empty and "symbol" in q.columns:
+                hit = q[q["symbol"].astype(str).str.contains(str(symbol))]
+                if not hit.empty:
+                    out.update(hit.iloc[0].to_dict())
+        else:  # US
+            q = _pd.DataFrame(_fetch("securities.equity.us.quote", {}).data)
+            if not q.empty and "symbol" in q.columns:
+                hit = q[q["symbol"].astype(str).str.upper() == str(symbol).upper()]
+                if not hit.empty:
+                    out.update(hit.iloc[0].to_dict())
+    except Exception:
+        pass
+
+    # Indicators
+    try:
+        if market == "CN":
+            ind = _pd.DataFrame(_fetch("securities.equity.cn.fundamentals.indicators", {"symbol": symbol}, ak_function="stock_financial_analysis_indicator_em").data)
+        elif market == "HK":
+            ind = _pd.DataFrame(_fetch("securities.equity.hk.fundamentals.indicators", {"symbol": symbol}).data)
+        else:
+            ind = _pd.DataFrame(_fetch("securities.equity.us.fundamentals.indicators", {"symbol": symbol}).data)
+        if not ind.empty:
+            for k in ["ROE", "净利润同比增长率", "营业收入同比增长率", "股息率", "PE", "PB"]:
+                if k in ind.columns:
+                    out[k] = ind[k].dropna().iloc[-1]
+    except Exception:
+        pass
+
+    # Score (CN only)
+    try:
+        if market == "CN":
+            s = _pd.DataFrame(_fetch("securities.equity.cn.fundamentals.score", {"symbol": symbol}).data)
+            if not s.empty:
+                out.update(s.iloc[0].to_dict())
+    except Exception:
+        pass
+
+    return _pd.DataFrame([out])
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cross_market.snapshot",
+        category="securities",
+        domain="securities.equity",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_fundamentals_snapshot_cross,
+    )
+)
