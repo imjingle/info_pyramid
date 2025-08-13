@@ -1266,9 +1266,9 @@ register(
         dataset_id="securities.equity.cn.fundamentals.indicators",
         category="securities",
         domain="securities.equity.cn",
-        ak_functions=["stock_financial_analysis_indicator_em"],
+        ak_functions=["stock_financial_analysis_indicator_em", "stock_financial_analysis_indicator"],
         source="em",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol")), "indicator": p.get("indicator") or "按报告期"},
     )
 )
 
@@ -1277,7 +1277,7 @@ register(
         dataset_id="securities.equity.cn.dividends",
         category="securities",
         domain="securities.equity.cn",
-        ak_functions=["stock_fhps_em", "stock_dividend_cninfo", "stock_history_dividend"],
+        ak_functions=["stock_dividend_cninfo", "stock_fhps_em", "stock_history_dividend"],
         source="multi",
         param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
     )
