@@ -287,6 +287,7 @@ register(
     )
 )
 
+# Expand equity quote field mapping to capture more columns if present
 register(
     DatasetSpec(
         dataset_id="securities.equity.cn.quote",
@@ -303,6 +304,12 @@ register(
             "涨跌额": "change",
             "成交量": "volume",
             "成交额": "amount",
+            "换手率": "turnover_rate",
+            "振幅": "amplitude",
+            "市盈率-动态": "pe_ttm",
+            "市净率": "pb",
+            "总市值": "market_cap",
+            "流通市值": "float_market_cap",
         },
     )
 )
@@ -1688,5 +1695,212 @@ register(
         ak_functions=["stock_board_concept_summary_ths"],
         source="ths",
         param_transform=_noop_params,
+    )
+)
+
+# ---------- Single-stock fundamentals (A-share) ----------
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.financials.is",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_profit_sheet_by_report_em", "stock_profit_sheet_by_yearly_em", "stock_profit_sheet_by_quarterly_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.financials.bs",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_balance_sheet_by_report_em", "stock_balance_sheet_by_yearly_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.financials.cf",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_cash_flow_sheet_by_report_em", "stock_cash_flow_sheet_by_yearly_em", "stock_cash_flow_sheet_by_quarterly_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.fundamentals.indicators",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_financial_analysis_indicator_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.dividends",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_fhps_em", "stock_dividend_cninfo", "stock_history_dividend"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.profile",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_profile_cninfo", "stock_sy_profile_em"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.analyst_forecast",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_profit_forecast_em", "stock_profit_forecast_ths", "stock_rank_forecast_cninfo"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.governance.management",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_hold_management_person_em", "stock_hold_management_detail_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.industry_class",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_industry_category_cninfo"],
+        source="cninfo",
+        param_transform=lambda p: {"symbol": p.get("standard") or "证监会行业分类"},
+    )
+)
+
+# ---------- Technical indicators (computed) ----------
+
+def _ema(series: "pd.Series", span: int) -> "pd.Series":
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def _rsi(close: "pd.Series", period: int = 14) -> "pd.Series":
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+    avg_gain = gain.rolling(period, min_periods=period).mean()
+    avg_loss = loss.rolling(period, min_periods=period).mean()
+    rs = avg_gain / (avg_loss.replace(0, np.nan))
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+def _atr(high: "pd.Series", low: "pd.Series", close: "pd.Series", period: int = 14) -> "pd.Series":
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(period, min_periods=period).mean()
+
+
+def _obv(close: "pd.Series", volume: "pd.Series") -> "pd.Series":
+    direction = close.diff().fillna(0).apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    return (direction * volume.fillna(0)).cumsum()
+
+
+def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    start = params.get("start")
+    end = params.get("end")
+    adjust = params.get("adjust") or "none"
+
+    env = _fetch("securities.equity.cn.ohlcv_daily", {"symbol": symbol, "start": start, "end": end, "adjust": adjust})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return df
+    df = df.sort_values("date").reset_index(drop=True)
+    close = _pd.to_numeric(df["close"], errors="coerce")
+    high = _pd.to_numeric(df["high"], errors="coerce")
+    low = _pd.to_numeric(df["low"], errors="coerce")
+    volume = _pd.to_numeric(df.get("volume"), errors="coerce")
+
+    # MAs
+    df["sma_20"] = close.rolling(20, min_periods=5).mean()
+    df["sma_50"] = close.rolling(50, min_periods=10).mean()
+    df["sma_200"] = close.rolling(200, min_periods=20).mean()
+    df["ema_12"] = _ema(close, 12)
+    df["ema_26"] = _ema(close, 26)
+
+    # MACD
+    macd = df["ema_12"] - df["ema_26"]
+    signal = macd.ewm(span=9, adjust=False).mean()
+    hist = macd - signal
+    df["macd"] = macd
+    df["macd_signal"] = signal
+    df["macd_hist"] = hist
+
+    # RSI, Bollinger, ATR, OBV
+    df["rsi_14"] = _rsi(close, 14)
+    ma20 = df["sma_20"]
+    std20 = close.rolling(20, min_periods=5).std()
+    df["bb_upper"] = ma20 + 2 * std20
+    df["bb_lower"] = ma20 - 2 * std20
+    df["atr_14"] = _atr(high, low, close, 14)
+    df["obv"] = _obv(close, volume)
+
+    # Pivot (last bar)
+    last_h = high.iloc[-1]
+    last_l = low.iloc[-1]
+    last_c = close.iloc[-1]
+    pp = (last_h + last_l + last_c) / 3.0 if _pd.notna(last_h) and _pd.notna(last_l) and _pd.notna(last_c) else _np.nan
+    df["pivot_point"] = pp
+
+    # Signals (last bar)
+    df["golden_cross"] = (df["ema_12"] > df["ema_26"]).astype(int)
+    df["price_breakout"] = (close > df["bb_upper"]).astype(int)
+    df["price_breakdown"] = (close < df["bb_lower"]).astype(int)
+    df["rsi_overbought"] = (df["rsi_14"] >= 70).astype(int)
+    df["rsi_oversold"] = (df["rsi_14"] <= 30).astype(int)
+    df["uptrend"] = ((df["sma_50"] > df["sma_200"]) & (close > df["sma_50"]).fillna(False)).astype(int)
+
+    return df
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.tech.indicators",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_tech_indicators,
     )
 )
