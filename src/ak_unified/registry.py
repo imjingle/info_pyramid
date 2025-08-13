@@ -1989,6 +1989,7 @@ def _obv(close: "pd.Series", volume: "pd.Series") -> "pd.Series":
 def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     from .dispatcher import fetch_data as _fetch
     import pandas as _pd
+    import numpy as _np
 
     symbol = params.get("symbol")
     if not symbol:
@@ -1997,7 +1998,22 @@ def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     end = params.get("end")
     adjust = params.get("adjust") or "none"
 
-    env = _fetch("securities.equity.cn.ohlcv_daily", {"symbol": symbol, "start": start, "end": end, "adjust": adjust}, ak_function="stock_zh_a_hist")
+    sma_short = int(params.get("sma_short", 20))
+    sma_mid = int(params.get("sma_mid", 50))
+    sma_long = int(params.get("sma_long", 200))
+    ema_fast = int(params.get("ema_fast", 12))
+    ema_slow = int(params.get("ema_slow", 26))
+    rsi_period = int(params.get("rsi_period", 14))
+    bb_window = int(params.get("bb_window", 20))
+    bb_k = float(params.get("bb_k", 2.0))
+    atr_period = int(params.get("atr_period", 14))
+    sr_lookback = int(params.get("sr_lookback", 20))
+
+    env = _fetch(
+        "securities.equity.cn.ohlcv_daily",
+        {"symbol": symbol, "start": start, "end": end, "adjust": adjust},
+        ak_function="stock_zh_a_hist",
+    )
     df = _pd.DataFrame(env.data)
     if df.empty:
         return df
@@ -2008,14 +2024,14 @@ def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     volume = _pd.to_numeric(df.get("volume"), errors="coerce")
 
     # MAs
-    df["sma_20"] = close.rolling(20, min_periods=5).mean()
-    df["sma_50"] = close.rolling(50, min_periods=10).mean()
-    df["sma_200"] = close.rolling(200, min_periods=20).mean()
-    df["ema_12"] = _ema(close, 12)
-    df["ema_26"] = _ema(close, 26)
+    df[f"sma_{sma_short}"] = close.rolling(sma_short, min_periods=max(5, sma_short//4)).mean()
+    df[f"sma_{sma_mid}"] = close.rolling(sma_mid, min_periods=max(10, sma_mid//5)).mean()
+    df[f"sma_{sma_long}"] = close.rolling(sma_long, min_periods=max(20, sma_long//10)).mean()
+    df[f"ema_{ema_fast}"] = _ema(close, ema_fast)
+    df[f"ema_{ema_slow}"] = _ema(close, ema_slow)
 
     # MACD
-    macd = df["ema_12"] - df["ema_26"]
+    macd = df[f"ema_{ema_fast}"] - df[f"ema_{ema_slow}"]
     signal = macd.ewm(span=9, adjust=False).mean()
     hist = macd - signal
     df["macd"] = macd
@@ -2023,13 +2039,17 @@ def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     df["macd_hist"] = hist
 
     # RSI, Bollinger, ATR, OBV
-    df["rsi_14"] = _rsi(close, 14)
-    ma20 = df["sma_20"]
-    std20 = close.rolling(20, min_periods=5).std()
-    df["bb_upper"] = ma20 + 2 * std20
-    df["bb_lower"] = ma20 - 2 * std20
-    df["atr_14"] = _atr(high, low, close, 14)
+    df[f"rsi_{rsi_period}"] = _rsi(close, rsi_period)
+    ma_b = close.rolling(bb_window, min_periods=max(5, bb_window//4)).mean()
+    std_b = close.rolling(bb_window, min_periods=max(5, bb_window//4)).std()
+    df["bb_upper"] = ma_b + bb_k * std_b
+    df["bb_lower"] = ma_b - bb_k * std_b
+    df[f"atr_{atr_period}"] = _atr(high, low, close, atr_period)
     df["obv"] = _obv(close, volume)
+
+    # Support/Resistance over lookback
+    df["sr_support"] = low.rolling(sr_lookback, min_periods=max(3, sr_lookback//3)).min()
+    df["sr_resistance"] = high.rolling(sr_lookback, min_periods=max(3, sr_lookback//3)).max()
 
     # Pivot (last bar)
     last_h = high.iloc[-1]
@@ -2039,12 +2059,12 @@ def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     df["pivot_point"] = pp
 
     # Signals (last bar)
-    df["golden_cross"] = (df["ema_12"] > df["ema_26"]).astype(int)
+    df["golden_cross"] = (df[f"ema_{ema_fast}"] > df[f"ema_{ema_slow}"]).astype(int)
     df["price_breakout"] = (close > df["bb_upper"]).astype(int)
     df["price_breakdown"] = (close < df["bb_lower"]).astype(int)
-    df["rsi_overbought"] = (df["rsi_14"] >= 70).astype(int)
-    df["rsi_oversold"] = (df["rsi_14"] <= 30).astype(int)
-    df["uptrend"] = ((df["sma_50"] > df["sma_200"]) & (close > df["sma_50"]).fillna(False)).astype(int)
+    df["rsi_overbought"] = (df[f"rsi_{rsi_period}"] >= 70).astype(int)
+    df["rsi_oversold"] = (df[f"rsi_{rsi_period}"] <= 30).astype(int)
+    df["uptrend"] = ((df.get(f"sma_{sma_mid}") > df.get(f"sma_{sma_long}")) & (close > df.get(f"sma_{sma_mid}")).fillna(False)).astype(int)
 
     return df
 
@@ -2057,5 +2077,89 @@ register(
         ak_functions=[],
         source="computed",
         compute=_compute_tech_indicators,
+    )
+)
+
+# HK add-ons
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.profile",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_hk_company_profile_em", "stock_hk_security_profile_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.analyst_forecast",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_hk_profit_forecast_et"],
+        source="eastmoney",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.indicators",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_hk_indicator_eniu"],
+        source="eniu",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+# Fundamentals snapshot (computed aggregator)
+
+def _compute_fundamentals_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    # Quote
+    quote = _fetch("securities.equity.cn.quote", {})
+    qdf = _pd.DataFrame(quote.data)
+    qrow = {}
+    if not qdf.empty:
+        qf = qdf[qdf["symbol"] == symbol]
+        if not qf.empty:
+            qrow = qf.iloc[0].to_dict()
+    # Indicators
+    try:
+        ind = _pd.DataFrame(_fetch("securities.equity.cn.fundamentals.indicators", {"symbol": symbol}, ak_function="stock_financial_analysis_indicator_em").data)
+    except Exception:
+        ind = _pd.DataFrame()
+    # Score
+    try:
+        score = _pd.DataFrame(_fetch("securities.equity.cn.fundamentals.score", {"symbol": symbol}).data)
+    except Exception:
+        score = _pd.DataFrame()
+
+    out = {"symbol": symbol}
+    out.update({k: v for k, v in qrow.items() if k in ("last", "pe_ttm", "pb", "market_cap", "float_market_cap")})
+    if not ind.empty:
+        for k in ["ROE", "净利润同比增长率", "营业收入同比增长率", "资产负债率", "股息率"]:
+            if k in ind.columns:
+                out[k] = ind[k].dropna().iloc[-1]
+    if not score.empty:
+        out.update(score.iloc[0].to_dict())
+    return _pd.DataFrame([out])
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.fundamentals.snapshot",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_fundamentals_snapshot,
     )
 )
