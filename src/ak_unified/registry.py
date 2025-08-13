@@ -767,3 +767,454 @@ register(
         field_mapping=FIELD_FUND_SCALE,
     )
 )
+
+# -------- Helpers for date formatting --------
+
+def _yyyymmdd(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return s
+    return s.replace("-", "")
+
+
+# -------- Macro monetary policy & liquidity --------
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.lpr",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_lpr"],
+        source="pbc",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.shibor",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_shibor_all"],
+        source="pbc",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.repo_rate_hist",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["repo_rate_hist"],
+        source="pbc",
+        param_transform=lambda p: {"start_date": _yyyymmdd(p.get("start")), "end_date": _yyyymmdd(p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.repo_rate_query",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["repo_rate_query"],
+        source="pbc",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "回购定盘利率"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.central_bank_balance",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_central_bank_balance"],
+        source="pbc",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.social_financing",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_new_financial_credit", "macro_stock_finance"],
+        source="pbc",
+        param_transform=_noop_params,
+    )
+)
+
+# TODO(analysis): derive economic_cycle_phase using multiple indicators (growth, inflation, policy rates). Not directly provided by AkShare.
+
+# -------- Market valuation/liquidity/sentiment --------
+
+register(
+    DatasetSpec(
+        dataset_id="market.valuation.cn.index_pe",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_index_pe_lg"],
+        source="legulegu",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "沪深300"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.valuation.cn.index_pb",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_index_pb_lg"],
+        source="legulegu",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "上证50"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.valuation.cn.market_pe",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_market_pe_lg"],
+        source="legulegu",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "深证"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.valuation.cn.market_pb",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_market_pb_lg"],
+        source="legulegu",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "上证"},
+    )
+)
+
+# Margin financing data
+register(
+    DatasetSpec(
+        dataset_id="market.margin.cn.sse",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_margin_sse"],
+        source="sse",
+        param_transform=lambda p: {"start_date": _yyyymmdd(p.get("start")), "end_date": _yyyymmdd(p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.margin.cn.szse",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_margin_szse"],
+        source="szse",
+        param_transform=lambda p: {"date": _yyyymmdd(p.get("date") or p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.margin.cn.detail_sse",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_margin_detail_sse"],
+        source="sse",
+        param_transform=lambda p: {"date": _yyyymmdd(p.get("date") or p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.margin.cn.detail_szse",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_margin_detail_szse"],
+        source="szse",
+        param_transform=lambda p: {"date": _yyyymmdd(p.get("date") or p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.margin.cn.ratio",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_margin_ratio_pa"],
+        source="pa",
+        param_transform=lambda p: {"date": _yyyymmdd(p.get("date") or p.get("end"))},
+    )
+)
+
+# Northbound/Southbound statistics
+register(
+    DatasetSpec(
+        dataset_id="market.hsgt.institution_stats",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_hsgt_institution_statistics_em"],
+        source="em",
+        param_transform=lambda p: {"market": p.get("market") or "北向持股", "start_date": _yyyymmdd(p.get("start")), "end_date": _yyyymmdd(p.get("end"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.hsgt.board_rank",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_hsgt_board_rank_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "北向资金增持行业板块排行", "indicator": p.get("indicator") or "今日"},
+    )
+)
+
+# Sentiment & volatility
+register(
+    DatasetSpec(
+        dataset_id="market.sentiment.cn.news_scope",
+        category="market",
+        domain="market.cn",
+        ak_functions=["index_news_sentiment_scope"],
+        source="news",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.volatility.cn.qvix",
+        category="market",
+        domain="market.cn",
+        ak_functions=[
+            "index_option_50etf_qvix",
+            "index_option_300etf_qvix",
+            "index_option_100etf_qvix",
+            "index_option_500etf_qvix",
+            "index_option_1000index_qvix",
+            "index_option_300index_qvix",
+            "index_option_50index_qvix",
+            "index_option_cyb_qvix",
+            "index_option_kcb_qvix",
+        ],
+        source="sse",
+        param_transform=_noop_params,
+    )
+)
+
+# TODO(analysis): retail_vs_institution_ratio not directly available; consider proxy via margin activity, average account size, turnover breakdown.
+# TODO(analysis): regulatory_risk_level not directly available; consider proxy from disclosures/sanctions/CSRC actions.
+
+# -------- Index components & industry valuation --------
+
+register(
+    DatasetSpec(
+        dataset_id="securities.index.cn.sw_components",
+        category="securities",
+        domain="securities.index.cn",
+        ak_functions=["index_component_sw"],
+        source="sw",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "801001"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.industry.cn.pe_ratio_cninfo",
+        category="securities",
+        domain="securities.industry.cn",
+        ak_functions=["stock_industry_pe_ratio_cninfo"],
+        source="cninfo",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "证监会行业分类", "date": p.get("date") or "20210910"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.industry.cn.category_cninfo",
+        category="securities",
+        domain="securities.industry.cn",
+        ak_functions=["stock_industry_category_cninfo"],
+        source="cninfo",
+        param_transform=lambda p: {"symbol": p.get("symbol") or "巨潮行业分类标准"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.industry.cn.sw_classification_hist",
+        category="securities",
+        domain="securities.industry.cn",
+        ak_functions=["stock_industry_clf_hist_sw"],
+        source="sw",
+        param_transform=_noop_params,
+    )
+)
+
+# -------- ESG --------
+register(
+    DatasetSpec(
+        dataset_id="market.esg.cn.sina_rate",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_esg_rate_sina"],
+        source="sina",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="market.esg.cn.msci",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_esg_msci_sina"],
+        source="sina",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="market.esg.cn.hz",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_esg_hz_sina"],
+        source="sina",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="market.esg.cn.rft",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_esg_rft_sina"],
+        source="sina",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="market.esg.cn.zd",
+        category="market",
+        domain="market.cn",
+        ak_functions=["stock_esg_zd_sina"],
+        source="sina",
+        param_transform=_noop_params,
+    )
+)
+
+# -------- Fund portfolios & holders --------
+
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.portfolio_hold",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_portfolio_hold_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("fund_code") or p.get("symbol"), "date": p.get("date") or "2024"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.portfolio_change",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_portfolio_change_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("fund_code") or p.get("symbol"), "indicator": p.get("indicator") or "累计买入", "date": p.get("date") or "2023"},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.holder_structure",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_hold_structure_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+# -------- Stock shareholding structure --------
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.shareholders.main",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_main_stock_holder"],
+        source="em",
+        param_transform=lambda p: {"stock": _strip_suffix(p.get("symbol") or p.get("stock"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.shareholders.circulate",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_circulate_stock_holder"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.shareholders.fund",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_fund_stock_holder"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.sharehold_change.sse",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_share_hold_change_sse"],
+        source="sse",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.sharehold_change.szse",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_share_hold_change_szse"],
+        source="szse",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.sharehold_change.bse",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_share_hold_change_bse"],
+        source="bse",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.share_change.cninfo",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_share_change_cninfo"],
+        source="cninfo",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol")), "start_date": _yyyymmdd(p.get("start")) or "20000101", "end_date": _yyyymmdd(p.get("end")) or "20991231"},
+    )
+)
