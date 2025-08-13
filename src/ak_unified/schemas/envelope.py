@@ -26,3 +26,5 @@ class DataEnvelope(BaseModel):
     )
     data: List[Dict[str, Any]] = Field(default_factory=list)
     pagination: Pagination = Field(default_factory=Pagination)
+    ak_function: Optional[str] = None
+    data_source: Optional[str] = None

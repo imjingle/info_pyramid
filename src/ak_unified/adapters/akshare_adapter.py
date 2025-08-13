@@ -17,14 +17,6 @@ def _import_akshare():
         raise AkAdapterError("Failed to import akshare. Ensure dependency is installed.") from exc
 
 
-def _find_first_available_function(ak_module, candidate_names: List[str]):
-    for name in candidate_names:
-        fn = getattr(ak_module, name, None)
-        if callable(fn):
-            return name, fn
-    raise AkAdapterError(f"None of candidate AkShare functions found: {candidate_names}")
-
-
 def _rename_columns(df: pd.DataFrame, field_mapping: Optional[Dict[str, str]]) -> pd.DataFrame:
     if field_mapping:
         cols = {c: field_mapping.get(c, c) for c in df.columns}
@@ -40,11 +32,14 @@ def _ensure_symbol_column(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFr
 
 
 def _normalize_types(df: pd.DataFrame) -> pd.DataFrame:
-    # Best-effort numeric conversion
     for c in df.columns:
         if c in {"date", "datetime"}:
             continue
-        df[c] = pd.to_numeric(df[c], errors="ignore")
+        try:
+            df[c] = pd.to_numeric(df[c])
+        except Exception:
+            # keep original if conversion fails
+            pass
     return df
 
 
@@ -52,21 +47,28 @@ def call_akshare(
     ak_functions: List[str],
     params: Dict[str, Any],
     field_mapping: Optional[Dict[str, str]] = None,
+    allow_empty: bool = True,
 ) -> Tuple[str, pd.DataFrame]:
     ak = _import_akshare()
-    fn_name, fn = _find_first_available_function(ak, ak_functions)
-
-    # Filter out None values to avoid unexpected AkShare param errors
-    call_params = {k: v for k, v in params.items() if v is not None}
-
-    data = fn(**call_params) if call_params else fn()
-    if isinstance(data, pd.DataFrame):
-        df = data.copy()
-    else:
-        # Many akshare APIs return DataFrame; if not, try to convert
-        df = pd.DataFrame(data)
-
-    df = _rename_columns(df, field_mapping)
-    df = _ensure_symbol_column(df, params)
-    df = _normalize_types(df)
-    return fn_name, df
+    last_err: Optional[Exception] = None
+    for name in ak_functions:
+        fn = getattr(ak, name, None)
+        if not callable(fn):
+            continue
+        try:
+            call_params = {k: v for k, v in params.items() if v is not None}
+            data = fn(**call_params) if call_params else fn()
+            df = data.copy() if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+            df = _rename_columns(df, field_mapping)
+            df = _ensure_symbol_column(df, params)
+            df = _normalize_types(df)
+            if not allow_empty and df.empty:
+                last_err = AkAdapterError(f"Function {name} returned empty result")
+                continue
+            return name, df
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise AkAdapterError(
+        f"All candidate AkShare functions failed: {ak_functions}. Last error: {last_err}"
+    )
