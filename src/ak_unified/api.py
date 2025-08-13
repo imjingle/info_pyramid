@@ -7,8 +7,24 @@ from fastapi import FastAPI, Query
 from sse_starlette.sse import EventSourceResponse
 
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
+from .registry import REGISTRY
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
+
+
+@app.get("/rpc/datasets")
+async def rpc_datasets() -> Dict[str, Any]:
+    items = []
+    for ds_id, spec in REGISTRY.items():
+        items.append({
+            "dataset_id": ds_id,
+            "category": spec.category,
+            "domain": spec.domain,
+            "ak_functions": spec.ak_functions,
+            "source": spec.source,
+            "computed": spec.compute is not None,
+        })
+    return {"items": items}
 
 
 @app.get("/rpc/fetch")
@@ -16,23 +32,50 @@ async def rpc_fetch(
     dataset_id: str = Query(...),
     ak_function: Optional[str] = Query(None),
     allow_fallback: bool = Query(False),
+    # common params (optional)
     symbol: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
+    date: Optional[str] = None,
     freq: Optional[str] = None,
     adjust: Optional[str] = None,
     board_code: Optional[str] = None,
     index_code: Optional[str] = None,
+    market: Optional[str] = None,
+    series: Optional[str] = None,
+    segment: Optional[str] = None,
+    indicator: Optional[str] = None,
+    fund_code: Optional[str] = None,
+    symbol2: Optional[str] = None,
+    window_days: Optional[int] = None,
+    min_periods: Optional[int] = None,
+    pmi_threshold: Optional[float] = None,
+    growth_high: Optional[float] = None,
+    growth_low: Optional[float] = None,
+    pmi_recession: Optional[float] = None,
 ) -> Dict[str, Any]:
     params: Dict[str, Any] = {}
     for k, v in {
         "symbol": symbol,
         "start": start,
         "end": end,
+        "date": date,
         "freq": freq,
         "adjust": adjust,
         "board_code": board_code,
         "index_code": index_code,
+        "market": market,
+        "series": series,
+        "segment": segment,
+        "indicator": indicator,
+        "fund_code": fund_code,
+        "symbol2": symbol2,
+        "window_days": window_days,
+        "min_periods": min_periods,
+        "pmi_threshold": pmi_threshold,
+        "growth_high": growth_high,
+        "growth_low": growth_low,
+        "pmi_recession": pmi_recession,
     }.items():
         if v is not None:
             params[k] = v
@@ -74,12 +117,43 @@ async def topic_stream(
     dataset_id: str,
     ak_function: Optional[str] = None,
     interval: float = 2.0,
+    # common params accepted for streaming
     symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    date: Optional[str] = None,
     freq: Optional[str] = None,
     adjust: Optional[str] = None,
+    board_code: Optional[str] = None,
+    index_code: Optional[str] = None,
+    market: Optional[str] = None,
+    series: Optional[str] = None,
+    segment: Optional[str] = None,
+    indicator: Optional[str] = None,
+    fund_code: Optional[str] = None,
+    symbol2: Optional[str] = None,
+    window_days: Optional[int] = None,
+    min_periods: Optional[int] = None,
 ) -> EventSourceResponse:
     params: Dict[str, Any] = {}
-    for k, v in {"symbol": symbol, "freq": freq, "adjust": adjust}.items():
+    for k, v in {
+        "symbol": symbol,
+        "start": start,
+        "end": end,
+        "date": date,
+        "freq": freq,
+        "adjust": adjust,
+        "board_code": board_code,
+        "index_code": index_code,
+        "market": market,
+        "series": series,
+        "segment": segment,
+        "indicator": indicator,
+        "fund_code": fund_code,
+        "symbol2": symbol2,
+        "window_days": window_days,
+        "min_periods": min_periods,
+    }.items():
         if v is not None:
             params[k] = v
     generator = _polling_generator(dataset_id, params, ak_function, interval)
