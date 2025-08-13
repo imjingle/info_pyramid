@@ -1284,14 +1284,19 @@ def _compute_economic_cycle_phase(params: Dict[str, Any]) -> pd.DataFrame:
     pmi_val = latest_num(pmi, "value") if pmi else np.nan
     ppi_yoy = latest_num(ppi, "value") if ppi else np.nan
 
-    # simple thresholds
+    # thresholds from params or defaults
+    pmi_threshold = float(params.get("pmi_threshold", 50))
+    pmi_recession = float(params.get("pmi_recession", 47))
+    growth_high = float(params.get("growth_high", 5))
+    growth_low = float(params.get("growth_low", 0))
+
     phase = "unknown"
     if not np.isnan(pmi_val) and not np.isnan(growth_yoy):
-        if pmi_val >= 50 and growth_yoy >= 5:
+        if pmi_val >= pmi_threshold and growth_yoy >= growth_high:
             phase = "expansion"
-        elif pmi_val < 50 and growth_yoy > 0:
+        elif pmi_val < pmi_threshold and growth_yoy > growth_low:
             phase = "slowdown"
-        elif growth_yoy <= 0 or pmi_val < 47:
+        elif growth_yoy <= growth_low or pmi_val < pmi_recession:
             phase = "recession"
         else:
             phase = "recovery"
@@ -1303,7 +1308,7 @@ def _compute_economic_cycle_phase(params: Dict[str, Any]) -> pd.DataFrame:
             "pmi_manu": pmi_val,
             "cpi_yoy": cpi_yoy,
             "ppi_yoy": ppi_yoy,
-            "note": "Heuristic; TODO: add momentum filters and diffusion indexes",
+            "note": "Heuristic; thresholds configurable via params: pmi_threshold, pmi_recession, growth_high, growth_low",
         }
     ])
 
@@ -1417,7 +1422,8 @@ def _compute_sentiment_dashboard(params: Dict[str, Any]) -> pd.DataFrame:
     from .dispatcher import fetch_data as _fetch
     import pandas as _pd
 
-    qvix_env = _fetch("market.volatility.cn.qvix", {}, ak_function="index_option_300etf_qvix")
+    qvix_fn = params.get("qvix_function") or "index_option_300etf_qvix"
+    qvix_env = _fetch("market.volatility.cn.qvix", {}, ak_function=qvix_fn)
     margin_env = _fetch("market.margin.cn.ratio", {"date": params.get("date") or "20231013"})
 
     news_score = None
