@@ -128,6 +128,25 @@ def _macro_ppi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     return out.dropna(subset=["value"])
 
 
+def _macro_cpi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    series = (params.get("series") or "yoy").lower()
+    # Common CPI columns: "当月" and "当月同比增长" or similar; prefer yoy
+    value_col = "当月同比增长" if series in {"yoy", "同比", "pct"} else "当月"
+    out = pd.DataFrame(
+        {
+            "region": "CN",
+            "indicator_id": "cpi_yoy" if value_col == "当月同比增长" else "cpi",
+            "indicator_name": "CPI同比" if value_col == "当月同比增长" else "CPI",
+            "date": df.get("月份") if "月份" in df.columns else df.iloc[:, 0],
+            "value": pd.to_numeric(df[value_col], errors="coerce"),
+            "unit": "pct" if value_col == "当月同比增长" else "index",
+            "period": "M",
+            "source": "akshare",
+        }
+    )
+    return out.dropna(subset=["value"])
+
+
 def _macro_pmi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     segment = (params.get("segment") or "manufacturing").lower()
     if segment.startswith("non") or segment.startswith("service"):
@@ -322,6 +341,18 @@ register(
         source="stats",
         param_transform=_noop_params,
         postprocess=_macro_ppi_post,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.cpi",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_cpi", "macro_china_cpi_monthly"],
+        source="stats",
+        param_transform=_noop_params,
+        postprocess=_macro_cpi_post,
     )
 )
 
@@ -1225,47 +1256,54 @@ register(
 # -------- Computed datasets (heuristics; TODO: refine models) --------
 
 def _compute_economic_cycle_phase(params: Dict[str, Any]) -> pd.DataFrame:
-    # Inputs: GDP YoY (macro.cn.gdp), CPI YoY (macro.cn.cpi TODO), Policy rates (LPR/shibor), Social financing
-    # TODO: add CPI mapping; using available LPR + social financing as proxy for liquidity, GDP yoy for growth
+    # Inputs: GDP YoY (macro.cn.gdp), CPI YoY (macro.cn.cpi), Policy rates (LPR/shibor), Social financing, PMI
     from .dispatcher import fetch_data as _fetch
 
-    growth = _fetch("macro.cn.gdp", {}, ak_function="macro_china_gdp").data  # expects MacroIndicator gdp_yoy
-    lpr = _fetch("macro.cn.lpr", {}).data
-    social = _fetch("macro.cn.social_financing", {}, ak_function="macro_china_new_financial_credit").data
+    def safe_fetch(dataset: str, kwargs: Dict[str, Any], ak_fn: Optional[str] = None):
+        try:
+            return _fetch(dataset, kwargs, ak_function=ak_fn).data
+        except Exception:
+            return []
 
-    # Heuristic: latest YoY growth and liquidity change
-    def latest_number(lst, key):
+    growth = safe_fetch("macro.cn.gdp", {}, ak_fn="macro_china_gdp")
+    cpi = safe_fetch("macro.cn.cpi", {"series": "yoy"}, ak_fn="macro_china_cpi")
+    pmi = safe_fetch("macro.cn.pmi", {"segment": "manufacturing"}, ak_fn="macro_china_pmi")
+    ppi = safe_fetch("macro.cn.ppi", {"series": "yoy"}, ak_fn="macro_china_ppi")
+    lpr = safe_fetch("macro.cn.lpr", {})
+    social = safe_fetch("macro.cn.social_financing", {}, ak_fn="macro_china_new_financial_credit")
+
+    def latest_num(lst, key):
         for item in lst[:50]:
             v = item.get(key)
             if isinstance(v, (int, float)):
                 return float(v)
         return np.nan
 
-    growth_yoy = latest_number(growth, "value") if growth else np.nan
-    lpr_level = np.nan
-    if lpr:
-        lpr_level = latest_number(lpr, list(lpr[0].keys())[1])
-    social_level = np.nan
-    if social:
-        social_level = latest_number(social, list(social[0].keys())[1])
+    growth_yoy = latest_num(growth, "value") if growth else np.nan
+    cpi_yoy = latest_num(cpi, "value") if cpi else np.nan
+    pmi_val = latest_num(pmi, "value") if pmi else np.nan
+    ppi_yoy = latest_num(ppi, "value") if ppi else np.nan
 
-    # Simple rules (placeholder):
-    # boom if growth high and liquidity ample; slowdown if growth falling; recession if negative growth proxy
+    # simple thresholds
     phase = "unknown"
-    if not np.isnan(growth_yoy) and growth_yoy >= 6:
-        phase = "expansion"
-    elif not np.isnan(growth_yoy) and 0 < growth_yoy < 6:
-        phase = "slowdown"
-    elif not np.isnan(growth_yoy) and growth_yoy <= 0:
-        phase = "recession"
+    if not np.isnan(pmi_val) and not np.isnan(growth_yoy):
+        if pmi_val >= 50 and growth_yoy >= 5:
+            phase = "expansion"
+        elif pmi_val < 50 and growth_yoy > 0:
+            phase = "slowdown"
+        elif growth_yoy <= 0 or pmi_val < 47:
+            phase = "recession"
+        else:
+            phase = "recovery"
 
     return pd.DataFrame([
         {
             "phase": phase,
             "growth_yoy": growth_yoy,
-            "lpr_level_proxy": lpr_level,
-            "social_financing_proxy": social_level,
-            "note": "TODO: incorporate CPI/PPI/PMI and rate of change with filters",
+            "pmi_manu": pmi_val,
+            "cpi_yoy": cpi_yoy,
+            "ppi_yoy": ppi_yoy,
+            "note": "Heuristic; TODO: add momentum filters and diffusion indexes",
         }
     ])
 
@@ -1323,6 +1361,7 @@ register(
         ak_functions=["macro_china_cpi", "macro_china_cpi_monthly"],
         source="stats",
         param_transform=_noop_params,
+        postprocess=_macro_cpi_post,
     )
 )
 
@@ -1374,12 +1413,21 @@ def _compute_index_valuation_risk(params: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _compute_sentiment_dashboard(params: Dict[str, Any]) -> pd.DataFrame:
-    # Inputs: QVIX proxies + margin ratio + (optional) news sentiment
+    # Inputs: QVIX proxies + margin ratio + optional news sentiment
     from .dispatcher import fetch_data as _fetch
     import pandas as _pd
 
     qvix_env = _fetch("market.volatility.cn.qvix", {}, ak_function="index_option_300etf_qvix")
     margin_env = _fetch("market.margin.cn.ratio", {"date": params.get("date") or "20231013"})
+
+    news_score = None
+    try:
+        news_env = _fetch("market.sentiment.cn.news_scope", {})
+        news_df = _pd.DataFrame(news_env.data)
+        news_score = int(len(news_df)) if not news_df.empty else None
+    except Exception:
+        news_score = None
+
     qvix_df = _pd.DataFrame(qvix_env.data)
     margin_df = _pd.DataFrame(margin_env.data)
 
@@ -1389,7 +1437,8 @@ def _compute_sentiment_dashboard(params: Dict[str, Any]) -> pd.DataFrame:
     out = {
         "vol_proxy": vol_current,
         "margin_ratio_sample": int(len(margin_df)),
-        "note": "TODO: enrich with news sentiment scope and turnover-based risk appetite",
+        "news_scope_sample": news_score,
+        "note": "TODO: replace news_scope_sample with actual sentiment score; add turnover risk appetite",
     }
     return _pd.DataFrame([out])
 
@@ -1413,5 +1462,38 @@ register(
         ak_functions=[],
         source="computed",
         compute=_compute_sentiment_dashboard,
+    )
+)
+
+def _compute_risk_appetite(params: Dict[str, Any]) -> pd.DataFrame:
+    # Use market snapshot to gauge winners ratio and mean turnover
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
+    env = _fetch("securities.equity.cn.quote", {})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return _pd.DataFrame([])
+    winners = _np.mean(_pd.to_numeric(df.get("pct_change"), errors="coerce") > 0)
+    mean_turnover = _pd.to_numeric(df.get("换手率"), errors="coerce").mean()
+    amplitude_mean = _pd.to_numeric(df.get("振幅"), errors="coerce").mean()
+    return _pd.DataFrame([
+        {
+            "winners_ratio": float(winners) if not _np.isnan(winners) else None,
+            "mean_turnover_rate": float(mean_turnover) if mean_turnover is not None else None,
+            "amplitude_mean": float(amplitude_mean) if amplitude_mean is not None else None,
+        }
+    ])
+
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.risk_appetite",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_risk_appetite,
     )
 )
