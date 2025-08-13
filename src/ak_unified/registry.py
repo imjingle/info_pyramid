@@ -1747,6 +1747,44 @@ register(
 
 # ---------- Financial statements postprocessors ----------
 
+# Common CN account name to canonical english key (non-exhaustive; extend as needed)
+ACCOUNT_KEY_MAP: Dict[str, str] = {
+    "营业总收入": "revenue_total",
+    "营业收入": "revenue",
+    "主营业务收入": "revenue_main",
+    "营业总成本": "operating_cost_total",
+    "营业成本": "cost_of_revenue",
+    "销售费用": "selling_expense",
+    "管理费用": "admin_expense",
+    "财务费用": "financial_expense",
+    "研发费用": "rd_expense",
+    "营业利润": "operating_profit",
+    "利润总额": "total_profit",
+    "净利润": "net_profit",
+    "归母净利润": "net_profit_parent",
+    "基本每股收益": "eps_basic",
+    "稀释每股收益": "eps_diluted",
+    "货币资金": "cash_and_equivalents",
+    "应收账款": "accounts_receivable",
+    "存货": "inventory",
+    "流动资产合计": "current_assets_total",
+    "非流动资产合计": "noncurrent_assets_total",
+    "资产总计": "assets_total",
+    "流动负债合计": "current_liabilities_total",
+    "非流动负债合计": "noncurrent_liabilities_total",
+    "负债合计": "liabilities_total",
+    "所有者权益(或股东权益)合计": "equity_total",
+    "经营活动现金流量净额": "cfo_net",
+    "投资活动产生的现金流量净额": "cfi_net",
+    "筹资活动产生的现金流量净额": "cff_net",
+    "现金及现金等价物净增加额": "cash_net_change",
+}
+
+
+def _map_account_key(key: str) -> str:
+    return ACCOUNT_KEY_MAP.get(key, key)
+
+
 def _normalize_financial_report(df: pd.DataFrame, params: Dict[str, Any], statement_type: str) -> pd.DataFrame:
     import re
     if df.empty:
@@ -1776,7 +1814,7 @@ def _normalize_financial_report(df: pd.DataFrame, params: Dict[str, Any], statem
             try:
                 v = float(pd.to_numeric(row[c]))
                 if pd.notna(v):
-                    values[str(c)] = v
+                    values[_map_account_key(str(c))] = v
             except Exception:
                 continue
         if not values:
@@ -2161,5 +2199,109 @@ register(
         ak_functions=[],
         source="computed",
         compute=_compute_fundamentals_snapshot,
+    )
+)
+
+# HK/US fundamentals indicators
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.fundamentals.indicators",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_financial_hk_analysis_indicator_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.indicators",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=["stock_financial_us_analysis_indicator_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+# Technical signals snapshot (computed)
+
+def _compute_tech_signals(params: Dict[str, Any]) -> pd.DataFrame:
+    import pandas as _pd
+    from .dispatcher import fetch_data as _fetch
+
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    tech = _pd.DataFrame(_fetch("securities.equity.cn.tech.indicators", params).data)
+    if tech.empty:
+        return tech
+    last = tech.iloc[-1]
+    keys = [
+        "golden_cross", "price_breakout", "price_breakdown", "rsi_overbought", "rsi_oversold", "uptrend",
+    ]
+    out = {"symbol": symbol}
+    out.update({k: int(last.get(k, 0)) for k in keys})
+    out["support"] = float(last.get("sr_support")) if _pd.notna(last.get("sr_support")) else None
+    out["resistance"] = float(last.get("sr_resistance")) if _pd.notna(last.get("sr_resistance")) else None
+    out["pivot_point"] = float(last.get("pivot_point")) if _pd.notna(last.get("pivot_point")) else None
+    return _pd.DataFrame([out])
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.tech.signals",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_tech_signals,
+    )
+)
+
+# HK/US fundamentals snapshot (computed)
+
+def _compute_fundamentals_snapshot_hk_us(params: Dict[str, Any], market: str) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    # Quote source for HK/US not registered here; rely on user fetching indicators and assembling snapshot
+    # Indicators
+    try:
+        ds = "securities.equity.hk.fundamentals.indicators" if market == "hk" else "securities.equity.us.fundamentals.indicators"
+        ind = _pd.DataFrame(_fetch(ds, {"symbol": symbol}).data)
+    except Exception:
+        ind = _pd.DataFrame()
+    out = {"symbol": symbol}
+    # heuristic picks
+    for k in ["PE", "PB", "ROE", "净利润同比增长率", "营业收入同比增长率", "股息率"]:
+        if k in ind.columns:
+            out[k] = ind[k].dropna().iloc[-1]
+    return _pd.DataFrame([out])
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.fundamentals.snapshot",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="computed",
+        compute=lambda p: _compute_fundamentals_snapshot_hk_us(p, "hk"),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.snapshot",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="computed",
+        compute=lambda p: _compute_fundamentals_snapshot_hk_us(p, "us"),
     )
 )
