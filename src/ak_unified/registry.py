@@ -1260,6 +1260,51 @@ register(
     )
 )
 
+# Restore datasets accidentally overwritten by edits
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.fundamentals.indicators",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_financial_analysis_indicator_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.dividends",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_fhps_em", "stock_dividend_cninfo", "stock_history_dividend"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.profile",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_profile_cninfo", "stock_sy_profile_em"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.analyst_forecast",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_profit_forecast_em", "stock_profit_forecast_ths", "stock_rank_forecast_cninfo"],
+        source="multi",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+    )
+)
+
 # -------- Computed datasets (heuristics; TODO: refine models) --------
 
 def _compute_economic_cycle_phase(params: Dict[str, Any]) -> pd.DataFrame:
@@ -1700,6 +1745,65 @@ register(
 
 # ---------- Single-stock fundamentals (A-share) ----------
 
+# ---------- Financial statements postprocessors ----------
+
+def _normalize_financial_report(df: pd.DataFrame, params: Dict[str, Any], statement_type: str) -> pd.DataFrame:
+    import re
+    if df.empty:
+        return df
+    # Choose period/date column heuristically
+    date_col = None
+    for c in ["报告期", "报告日期", "日期", "公告日期", "period", "date"]:
+        if c in df.columns:
+            date_col = c
+            break
+    if date_col is None:
+        # try first column if looks date-like
+        c0 = df.columns[0]
+        if re.search(r"\d{4}-\d{2}-\d{2}", str(df.iloc[0, 0])):
+            date_col = c0
+        else:
+            date_col = c0
+    # Build values map per row by numeric columns
+    records: list[dict] = []
+    symbol = params.get("symbol")
+    for _, row in df.iterrows():
+        period_end = str(row.get(date_col))
+        values: Dict[str, float] = {}
+        for c in df.columns:
+            if c == date_col:
+                continue
+            try:
+                v = float(pd.to_numeric(row[c]))
+                if pd.notna(v):
+                    values[str(c)] = v
+            except Exception:
+                continue
+        if not values:
+            continue
+        records.append({
+            "symbol": symbol,
+            "statement_type": statement_type,
+            "period_end": period_end,
+            "report_type": None,
+            "currency": "CNY",
+            "values": values,
+        })
+    return pd.DataFrame(records)
+
+
+def _post_is(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    return _normalize_financial_report(df, params, "IS")
+
+
+def _post_bs(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    return _normalize_financial_report(df, params, "BS")
+
+
+def _post_cf(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    return _normalize_financial_report(df, params, "CF")
+
+
 register(
     DatasetSpec(
         dataset_id="securities.equity.cn.financials.is",
@@ -1708,6 +1812,7 @@ register(
         ak_functions=["stock_profit_sheet_by_report_em", "stock_profit_sheet_by_yearly_em", "stock_profit_sheet_by_quarterly_em"],
         source="em",
         param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        postprocess=_post_is,
     )
 )
 
@@ -1719,6 +1824,7 @@ register(
         ak_functions=["stock_balance_sheet_by_report_em", "stock_balance_sheet_by_yearly_em"],
         source="em",
         param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        postprocess=_post_bs,
     )
 )
 
@@ -1730,72 +1836,121 @@ register(
         ak_functions=["stock_cash_flow_sheet_by_report_em", "stock_cash_flow_sheet_by_yearly_em", "stock_cash_flow_sheet_by_quarterly_em"],
         source="em",
         param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        postprocess=_post_cf,
     )
 )
 
+# HK & US financial reports
 register(
     DatasetSpec(
-        dataset_id="securities.equity.cn.fundamentals.indicators",
+        dataset_id="securities.equity.hk.financials.report",
         category="securities",
-        domain="securities.equity.cn",
-        ak_functions=["stock_financial_analysis_indicator_em"],
+        domain="securities.equity.hk",
+        ak_functions=["stock_financial_hk_report_em"],
         source="em",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        param_transform=lambda p: {"symbol": p.get("symbol")},
     )
 )
 
 register(
     DatasetSpec(
-        dataset_id="securities.equity.cn.dividends",
+        dataset_id="securities.equity.us.financials.report",
         category="securities",
-        domain="securities.equity.cn",
-        ak_functions=["stock_fhps_em", "stock_dividend_cninfo", "stock_history_dividend"],
-        source="multi",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
-    )
-)
-
-register(
-    DatasetSpec(
-        dataset_id="securities.equity.cn.profile",
-        category="securities",
-        domain="securities.equity.cn",
-        ak_functions=["stock_profile_cninfo", "stock_sy_profile_em"],
-        source="multi",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
-    )
-)
-
-register(
-    DatasetSpec(
-        dataset_id="securities.equity.cn.analyst_forecast",
-        category="securities",
-        domain="securities.equity.cn",
-        ak_functions=["stock_profit_forecast_em", "stock_profit_forecast_ths", "stock_rank_forecast_cninfo"],
-        source="multi",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
-    )
-)
-
-register(
-    DatasetSpec(
-        dataset_id="securities.equity.cn.governance.management",
-        category="securities",
-        domain="securities.equity.cn",
-        ak_functions=["stock_hold_management_person_em", "stock_hold_management_detail_em"],
+        domain="securities.equity.us",
+        ak_functions=["stock_financial_us_report_em"],
         source="em",
-        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol"))},
+        param_transform=lambda p: {"symbol": p.get("symbol")},
     )
 )
 
+# ---------- Fundamentals composite score (computed) ----------
+
+def _compute_fundamentals_score(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    # fetch indicators
+    ind = _pd.DataFrame(_fetch("securities.equity.cn.fundamentals.indicators", {"symbol": symbol}).data)
+    if ind.empty:
+        return _pd.DataFrame([])
+    # try to extract key metrics by fuzzy column names
+    def get_col(df, keys):
+        for k in keys:
+            if k in df.columns:
+                return _pd.to_numeric(df[k], errors="coerce")
+        return _pd.Series([], dtype=float)
+
+    # valuation (lower better): PE/PB
+    pe = get_col(ind, ["市盈率TTM", "市盈率", "pe_ttm", "PE"])
+    pb = get_col(ind, ["市净率", "PB"]) 
+    # growth: revenue yoy, net profit yoy
+    growth_rev = get_col(ind, ["营业收入同比增长率", "营收同比", "收入增长率"]) 
+    growth_np = get_col(ind, ["净利润同比增长率", "净利同比", "净利润增长率"]) 
+    # profitability: ROE/ROA/margin
+    roe = get_col(ind, ["ROE", "净资产收益率"]) 
+    margin = get_col(ind, ["净利率", "毛利率"]) 
+    # leverage/health: 资产负债率、流动比率
+    debt = get_col(ind, ["资产负债率", "负债率"]) 
+    current = get_col(ind, ["流动比率"]) 
+    # dividend
+    dy = get_col(ind, ["股息率", "股息率TTM"]) 
+
+    # reduce to last row
+    def last_val(s: _pd.Series):
+        return float(s.dropna().iloc[-1]) if not s.dropna().empty else _np.nan
+
+    pe_v = last_val(pe)
+    pb_v = last_val(pb)
+    growth_v = _np.nanmean([last_val(growth_rev), last_val(growth_np)])
+    prof_v = _np.nanmean([last_val(roe), last_val(margin)])
+    health_v = _np.nanmean([ (100.0 - last_val(debt)) if not _np.isnan(last_val(debt)) else _np.nan, last_val(current)])
+    div_v = last_val(dy)
+
+    # simple normalization into 0-100; lower PE/PB => higher score
+    def score_inv(x, cap=60.0):
+        if _np.isnan(x):
+            return _np.nan
+        return max(0.0, min(100.0, (cap / max(1e-6, x)) * 100.0 / cap))
+
+    def score_pos(x, cap=30.0):
+        if _np.isnan(x):
+            return _np.nan
+        return max(0.0, min(100.0, (x / cap) * 100.0))
+
+    score_valuation = _np.nanmean([score_inv(pe_v), score_inv(pb_v)])
+    score_growth = score_pos(growth_v, 40.0)
+    score_profitability = score_pos(prof_v, 30.0)
+    score_health = score_pos(health_v, 200.0)
+    score_dividend = score_pos(div_v, 8.0)
+
+    overall = _np.nanmean([score_valuation, score_growth, score_profitability, score_health, score_dividend])
+
+    return _pd.DataFrame([
+        {
+            "symbol": symbol,
+            "score_overall": float(overall) if not _np.isnan(overall) else None,
+            "score_valuation": float(score_valuation) if not _np.isnan(score_valuation) else None,
+            "score_growth": float(score_growth) if not _np.isnan(score_growth) else None,
+            "score_profitability": float(score_profitability) if not _np.isnan(score_profitability) else None,
+            "score_health": float(score_health) if not _np.isnan(score_health) else None,
+            "score_dividend": float(score_dividend) if not _np.isnan(score_dividend) else None,
+            "note": "Heuristic scoring; TODO: calibrate caps and add analyst expectations/ESG/competitive advantage",
+        }
+    ])
+
+
 register(
     DatasetSpec(
-        dataset_id="securities.equity.cn.industry_class",
+        dataset_id="securities.equity.cn.fundamentals.score",
         category="securities",
         domain="securities.equity.cn",
-        ak_functions=["stock_industry_category_cninfo"],
-        source="cninfo",
-        param_transform=lambda p: {"symbol": p.get("standard") or "证监会行业分类"},
+        ak_functions=[],
+        source="computed",
+        compute=_compute_fundamentals_score,
     )
 )
 
@@ -1842,7 +1997,7 @@ def _compute_tech_indicators(params: Dict[str, Any]) -> pd.DataFrame:
     end = params.get("end")
     adjust = params.get("adjust") or "none"
 
-    env = _fetch("securities.equity.cn.ohlcv_daily", {"symbol": symbol, "start": start, "end": end, "adjust": adjust})
+    env = _fetch("securities.equity.cn.ohlcv_daily", {"symbol": symbol, "start": start, "end": end, "adjust": adjust}, ak_function="stock_zh_a_hist")
     df = _pd.DataFrame(env.data)
     if df.empty:
         return df
