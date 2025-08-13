@@ -1313,3 +1313,105 @@ register(
         compute=_compute_retail_vs_institution_proxy,
     )
 )
+
+# Add CPI dataset mapping (CN)
+register(
+    DatasetSpec(
+        dataset_id="macro.cn.cpi",
+        category="macro",
+        domain="macro.cn",
+        ak_functions=["macro_china_cpi", "macro_china_cpi_monthly"],
+        source="stats",
+        param_transform=_noop_params,
+    )
+)
+
+# Extend economic cycle compute to fetch CPI/PMI inside compute
+
+def _compute_index_valuation_risk(params: Dict[str, Any]) -> pd.DataFrame:
+    # Inputs: index PE/PB time series -> rolling zscore and percentile
+    from .dispatcher import fetch_data as _fetch
+    import numpy as _np
+    import pandas as _pd
+
+    symbol = params.get("symbol") or "沪深300"
+    pe_env = _fetch("market.valuation.cn.index_pe", {"symbol": symbol})
+    pb_env = _fetch("market.valuation.cn.index_pb", {"symbol": "上证50"})
+
+    def compute_stats(df: _pd.DataFrame, value_col: str):
+        series = _pd.to_numeric(df[value_col], errors="coerce")
+        rolling = series.rolling(252, min_periods=63)
+        mean = rolling.mean()
+        std = rolling.std()
+        z = (series - mean) / std
+        rank = series.rank(pct=True)
+        return z, rank
+
+    df_pe = _pd.DataFrame(pe_env.data)
+    if df_pe.empty or "滚动市盈率" not in df_pe.columns:
+        return _pd.DataFrame([])
+    z_pe, pct_pe = compute_stats(df_pe, "滚动市盈率")
+
+    df_out = _pd.DataFrame({
+        "date": df_pe.get("日期", _pd.RangeIndex(len(df_pe))).astype(str),
+        "pe_rolling": _pd.to_numeric(df_pe["滚动市盈率"], errors="coerce"),
+        "pe_zscore_252": z_pe,
+        "pe_percentile": pct_pe,
+    })
+
+    # Optional PB
+    df_pb = _pd.DataFrame(pb_env.data)
+    if not df_pb.empty and "市净率" in df_pb.columns:
+        series_pb = _pd.to_numeric(df_pb["市净率"], errors="coerce")
+        rolling_pb = series_pb.rolling(252, min_periods=63)
+        z_pb = (series_pb - rolling_pb.mean()) / rolling_pb.std()
+        pct_pb = series_pb.rank(pct=True)
+        df_out["pb"] = series_pb
+        df_out["pb_zscore_252"] = z_pb
+        df_out["pb_percentile"] = pct_pb
+
+    return df_out.dropna(how="all")
+
+
+def _compute_sentiment_dashboard(params: Dict[str, Any]) -> pd.DataFrame:
+    # Inputs: QVIX proxies + margin ratio + (optional) news sentiment
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    qvix_env = _fetch("market.volatility.cn.qvix", {}, ak_function="index_option_300etf_qvix")
+    margin_env = _fetch("market.margin.cn.ratio", {"date": params.get("date") or "20231013"})
+    qvix_df = _pd.DataFrame(qvix_env.data)
+    margin_df = _pd.DataFrame(margin_env.data)
+
+    current_vol = _pd.to_numeric(qvix_df.get("close"), errors="coerce").tail(1).fillna(0).values
+    vol_current = float(current_vol[0]) if len(current_vol) else None
+
+    out = {
+        "vol_proxy": vol_current,
+        "margin_ratio_sample": int(len(margin_df)),
+        "note": "TODO: enrich with news sentiment scope and turnover-based risk appetite",
+    }
+    return _pd.DataFrame([out])
+
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.index_valuation_risk",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_index_valuation_risk,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.sentiment_dashboard",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_sentiment_dashboard,
+    )
+)
