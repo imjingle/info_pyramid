@@ -2405,3 +2405,146 @@ register(
         compute=_compute_fundamentals_snapshot_cross,
     )
 )
+
+# HK/US OHLCV daily
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_daily",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=["stock_hk_hist"],
+        source="em",
+        param_transform=lambda p: {
+            "symbol": p.get("symbol"),
+            "period": "daily",
+            "start_date": (p.get("start") or "19700101").replace("-", ""),
+            "end_date": (p.get("end") or "22220101").replace("-", ""),
+            "adjust": {"none": "", "qfq": "qfq", "hfq": "hfq"}.get(p.get("adjust") or "none", ""),
+        },
+        field_mapping=FIELD_OHLCV_CN,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_daily",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=["stock_us_hist"],
+        source="em",
+        param_transform=lambda p: {
+            "symbol": p.get("symbol"),
+            "period": "daily",
+            "start_date": (p.get("start") or "19700101").replace("-", ""),
+            "end_date": (p.get("end") or "22220101").replace("-", ""),
+            "adjust": {"none": "", "qfq": "qfq", "hfq": "hfq"}.get(p.get("adjust") or "none", ""),
+        },
+        field_mapping=FIELD_OHLCV_CN,
+    )
+)
+
+# ESG unified (computed)
+
+def _compute_esg_unified(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    symbol = params.get("symbol")
+    # Load raw tables from multiple sources
+    tables = []
+    for ds in [
+        "market.esg.cn.sina_rate",
+        "market.esg.cn.msci",
+        "market.esg.cn.hz",
+        "market.esg.cn.rft",
+        "market.esg.cn.zd",
+    ]:
+        try:
+            env = _fetch(ds, {})
+            df = _pd.DataFrame(env.data)
+            if not df.empty:
+                df["source_ds"] = ds
+                tables.append(df)
+        except Exception:
+            continue
+    if not tables:
+        return _pd.DataFrame([])
+    df_all = _pd.concat(tables, ignore_index=True, sort=False)
+    # normalize keys
+    # heuristic: try to find a code or symbol column
+    code_col = None
+    for c in ["代码", "symbol", "股票代码", "证券代码"]:
+        if c in df_all.columns:
+            code_col = c
+            break
+    name_col = None
+    for c in ["名称", "symbol_name", "股票名称", "证券简称"]:
+        if c in df_all.columns:
+            name_col = c
+            break
+    score_cols = [c for c in df_all.columns if any(k in str(c) for k in ["ESG", "评分", "score", "评级"])]
+    m = df_all[[x for x in [code_col, name_col] if x] + score_cols + ["source_ds"]].copy()
+    if symbol and code_col:
+        m = m[m[code_col].astype(str).str.contains(str(symbol))]
+    # melt to unified rows
+    mm = m.melt(id_vars=[x for x in [code_col, name_col, "source_ds"] if x], var_name="metric", value_name="value")
+    mm = mm.dropna(subset=["value"]).copy()
+    # map to unified keys when possible
+    mm.rename(columns={code_col or "symbol": "symbol", name_col or "symbol_name": "symbol_name"}, inplace=True)
+    return mm
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.esg.cn.unified",
+        category="securities",
+        domain="securities.esg.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_esg_unified,
+    )
+)
+
+# Cross-market tech indicators (computed wrapper)
+
+def _compute_tech_indicators_cross(params: Dict[str, Any]) -> pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+
+    market = (params.get("market") or "CN").upper()
+    symbol = params.get("symbol")
+    if not symbol:
+        return _pd.DataFrame([])
+    if market == "CN":
+        return _pd.DataFrame(_fetch("securities.equity.cn.tech.indicators", params).data)
+    # For HK/US reuse OHLCV and compute a subset (SMA/EMA/RSI)
+    ohlcv_ds = "securities.equity.hk.ohlcv_daily" if market == "HK" else "securities.equity.us.ohlcv_daily"
+    env = _fetch(ohlcv_ds, {"symbol": symbol, "start": params.get("start"), "end": params.get("end")})
+    df = _pd.DataFrame(env.data)
+    if df.empty:
+        return df
+    df = df.sort_values("date").reset_index(drop=True)
+    close = _pd.to_numeric(df["close"], errors="coerce")
+    df["sma_20"] = close.rolling(20, min_periods=5).mean()
+    df["ema_12"] = close.ewm(span=12, adjust=False).mean()
+    df["ema_26"] = close.ewm(span=26, adjust=False).mean()
+    # simple RSI
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+    df["rsi_14"] = 100 - (100 / (1 + (gain.rolling(14, min_periods=14).mean() / loss.rolling(14, min_periods=14).mean().replace(0, _pd.NA))))
+    return df
+
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cross_market.tech.indicators",
+        category="securities",
+        domain="securities.equity",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_tech_indicators_cross,
+    )
+)
+
+# NOTE: ACCOUNT_KEY_MAP could be externalized via a YAML/JSON config loaded at runtime for extensibility.
