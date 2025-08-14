@@ -66,10 +66,10 @@ SSE topics:
 - 设置 `AKU_DB_DSN` 启用；可选 TTL：`AKU_CACHE_TTL_SECONDS` 或 `AKU_CACHE_TTL_PER_DATASET`
 - 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
 - 行级缓存表：`aku_cache`（JSON，便于按字段查询与缺口补拉）
-- 请求级缓存表：`aku_cache_blob`（pickle 二进制，保留原始数据结构与类型；可选 zlib 压缩，设 `AKU_BLOB_COMPRESS=1`）
+- 请求级缓存表：`aku_cache_blob`（pickle 二进制，保留原始数据结构与类型；可选 zlib 压缩，设 `AKU_BLOB_COMPRESS=1`；可选前缀白名单 `AKU_BLOB_ALLOW_PREFIXES=["securities.equity.cn.","market.index"]` 与大小限制 `AKU_BLOB_MAX_BYTES=10485760`）
 
 Replay & manage:
-- 回放：`/rpc/replay?dataset_id=...&params=...`（命中则返回原始 raw 与元数据 ak_function/adapter/timezone）
+- 回放：`/rpc/replay?dataset_id=...&params=...&format=raw|envelope`（命中则返回原始 raw 与元数据，或封装为 envelope）
 - 读取：`/admin/cache/blob?dataset_id=...&params=...`
 - 清理：`/admin/cache/blob/purge?dataset_id=...` 或按 `dataset_prefix` 与 `updated_after/updated_before`
 

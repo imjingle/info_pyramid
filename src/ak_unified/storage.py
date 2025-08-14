@@ -264,13 +264,30 @@ async def upsert_blob_snapshot(
     adapter: Optional[str] = None,
     timezone: Optional[str] = None,
     raw_obj: Any,
-) -> None:
+) -> bool:
+    # optional allowlist by prefix
+    allow_raw = os.environ.get('AKU_BLOB_ALLOW_PREFIXES')
+    if allow_raw:
+        try:
+            prefixes = json.loads(allow_raw)
+            if isinstance(prefixes, list) and prefixes:
+                if not any(dataset_id.startswith(str(p)) for p in prefixes):
+                    return False
+        except Exception:
+            pass
     key = _request_key(dataset_id, params)
     data = pickle.dumps(raw_obj)
     encoding = 'raw'
     if os.environ.get('AKU_BLOB_COMPRESS', '0') in ('1', 'true', 'True'):
         data = zlib.compress(data)
         encoding = 'zlib'
+    # optional size guard
+    try:
+        max_bytes = int(os.environ.get('AKU_BLOB_MAX_BYTES', '0'))
+    except Exception:
+        max_bytes = 0
+    if max_bytes > 0 and len(data) > max_bytes:
+        return False
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -280,6 +297,7 @@ async def upsert_blob_snapshot(
             """,
             key, dataset_id, json.dumps(params, ensure_ascii=False), ak_function, adapter, timezone, data, encoding,
         )
+    return True
 
 
 async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Tuple[Any, Dict[str, Any]]]:
