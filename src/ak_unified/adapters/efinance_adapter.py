@@ -99,4 +99,78 @@ def call_efinance(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.Data
             df.insert(0, 'index_symbol', index_code)
         return ('efinance.get_index_stocks', df)
 
+    # Fund flow (individual)
+    if dataset_id.endswith('fund_flow.efinance'):
+        symbol = params.get('symbol')
+        df = pd.DataFrame([])
+        for fn_name in ['get_money_flow', 'get_fund_flow']:
+            try:
+                fn = getattr(ef.stock, fn_name, None)
+                if fn:
+                    df = _to_df(fn(symbol))
+                    break
+            except Exception:
+                continue
+        if not df.empty:
+            # Try common columns
+            rename = {'日期': 'date', '主力净流入': 'main_inflow', '主力净流出': 'main_outflow', '主力净额': 'net_inflow', '净额': 'net_inflow', '涨跌幅': 'pct_change'}
+            df = df.rename(columns=rename)
+            if 'symbol' not in df.columns:
+                df.insert(0, 'symbol', symbol)
+        return ('efinance.stock.fund_flow', df)
+
+    # Industry/concept lists and constituents
+    if dataset_id.endswith('board.industry.list.efinance'):
+        df = pd.DataFrame([])
+        for fn_name in ['get_industries', 'get_industry_plate', 'get_plate_list']:
+            try:
+                fn = getattr(ef.stock, fn_name, None)
+                if fn:
+                    df = _to_df(fn())
+                    break
+            except Exception:
+                continue
+        return ('efinance.stock.industry_list', df)
+
+    if dataset_id.endswith('board.concept.list.efinance'):
+        df = pd.DataFrame([])
+        for fn_name in ['get_concepts', 'get_concept_plate']:
+            try:
+                fn = getattr(ef.stock, fn_name, None)
+                if fn:
+                    df = _to_df(fn())
+                    break
+            except Exception:
+                continue
+        return ('efinance.stock.concept_list', df)
+
+    if dataset_id.endswith('board.industry.cons.efinance') or dataset_id.endswith('board.concept.cons.efinance'):
+        plate_code = params.get('board_code') or params.get('symbol')
+        df = pd.DataFrame([])
+        for fn_name in ['get_plate_stocks', 'get_industry_stocks', 'get_concept_stocks']:
+            try:
+                fn = getattr(ef.stock, fn_name, None)
+                if fn:
+                    df = _to_df(fn(plate_code))
+                    break
+            except Exception:
+                continue
+        if not df.empty:
+            df = df.rename(columns={'代码': 'symbol', '名称': 'symbol_name', '权重': 'weight'})
+        return ('efinance.stock.plate_stocks', df)
+
+    # Announcements
+    if dataset_id.endswith('announcements.efinance'):
+        symbol = params.get('symbol')
+        df = pd.DataFrame([])
+        for fn_name in ['get_announcement', 'get_announce', 'get_company_announcement']:
+            try:
+                fn = getattr(ef.stock, fn_name, None)
+                if fn:
+                    df = _to_df(fn(symbol))
+                    break
+            except Exception:
+                continue
+        return ('efinance.stock.announcement', df)
+
     return ('efinance.unsupported', pd.DataFrame([]))

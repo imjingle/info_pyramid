@@ -3000,3 +3000,118 @@ register(
         platform="cross",
     )
 )
+
+# efinance extras
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.fund_flow.efinance",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.list.efinance",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=_noop_params,
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.list.efinance",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=_noop_params,
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.cons.efinance",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.cons.efinance",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.announcements.efinance",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+
+# Virtual computed datasets for valuation/momentum snapshots and playback
+import pandas as _pd
+from datetime import datetime as _dt
+
+
+def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
+    # params: entity_type=board|index, ids=[...], start, end, window
+    entity_type = (params.get('entity_type') or 'board').lower()
+    ids = params.get('ids') or []
+    window = int(params.get('window') or 20)
+    # placeholder: compute from historical data (requires client to fetch or we fetch via akshare index/board daily)
+    # For brevity, return empty with metadata
+    return _pd.DataFrame([{ 'entity_type': entity_type, 'ids': ids, 'window': window, 'note': 'TODO: implement valuation percentiles and momentum from historical OHLCV/PE/PB time series'}])
+
+
+def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
+    # params: entity_type, ids, start, end, bucket_sec
+    return _pd.DataFrame([{ 'note': 'TODO: implement playback using stored bucket_history or recomputation from minute data' }])
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.valuation_momentum.snapshot",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_board_index_val_momo,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.aggregation.playback",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_board_index_playback,
+    )
+)
