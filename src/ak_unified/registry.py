@@ -4439,3 +4439,62 @@ register(
         compute=lambda p: _pd.DataFrame([]),
     )
 )
+
+# Macro: CN generic postprocessor (for many single-series tables)
+def _macro_cn_series_post(df: _pd.DataFrame, params: Dict[str, Any], *, indicator_id: str, indicator_name: str, unit: str = 'index', period: str = 'M', prefer_columns: Optional[List[str]] = None) -> _pd.DataFrame:
+    date_col = '月份' if '月份' in df.columns else ('时间' if '时间' in df.columns else ('日期' if '日期' in df.columns else df.columns[0]))
+    preferred = prefer_columns or []
+    val_series = None
+    for c in preferred:
+        if c in df.columns:
+            val_series = _pd.to_numeric(df[c], errors='coerce')
+            break
+    if val_series is None:
+        try:
+            val_series = _pd.to_numeric(df.iloc[:, 1], errors='coerce')
+        except Exception:
+            val_series = _pd.Series([], dtype='float64')
+    out = _pd.DataFrame({
+        'region': 'CN',
+        'indicator_id': indicator_id,
+        'indicator_name': indicator_name,
+        'date': df[date_col],
+        'value': val_series,
+        'unit': unit,
+        'period': period,
+        'source': 'akshare',
+    })
+    return out.dropna(subset=['value'])
+
+# ---------- CN Macro registrations (additional) ----------
+register(DatasetSpec(dataset_id="macro.cn.interest_rate", category="macro", domain="macro.cn", ak_functions=["macro_china_interest_rate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='interest_rate', indicator_name='Benchmark Interest Rate', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.money_supply", category="macro", domain="macro.cn", ak_functions=["macro_china_money_supply"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='money_supply', indicator_name='Money Supply', unit='CNY_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.reverse_repo_rate", category="macro", domain="macro.cn", ak_functions=["macro_china_reverse_repo_rate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='reverse_repo_rate', indicator_name='Reverse Repo Rate', unit='pct', period='D')))
+register(DatasetSpec(dataset_id="macro.cn.mlf_rate", category="macro", domain="macro.cn", ak_functions=["macro_china_mlf_rate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='mlf_rate', indicator_name='MLF Rate', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.slf_rate", category="macro", domain="macro.cn", ak_functions=["macro_china_sls_rate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='slf_rate', indicator_name='SLF Rate', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.fiscal.revenue.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_fiscal_revenue_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fiscal_revenue_yearly', indicator_name='Fiscal Revenue (Yearly)', unit='CNY_billion', period='Y')))
+register(DatasetSpec(dataset_id="macro.cn.fiscal.revenue.monthly", category="macro", domain="macro.cn", ak_functions=["macro_china_fiscal_revenue_monthly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fiscal_revenue_monthly', indicator_name='Fiscal Revenue (Monthly)', unit='CNY_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.fiscal.expenditure.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_fiscal_expenditure_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fiscal_expenditure_yearly', indicator_name='Fiscal Expenditure (Yearly)', unit='CNY_billion', period='Y')))
+register(DatasetSpec(dataset_id="macro.cn.fiscal.expenditure.monthly", category="macro", domain="macro.cn", ak_functions=["macro_china_fiscal_expenditure_monthly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fiscal_expenditure_monthly', indicator_name='Fiscal Expenditure (Monthly)', unit='CNY_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.national_debt", category="macro", domain="macro.cn", ak_functions=["macro_china_national_debt"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='national_debt', indicator_name='National External Debt Balance', unit='CNY_billion', period='Q')))
+register(DatasetSpec(dataset_id="macro.cn.gdp.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_gdp_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='gdp_yearly', indicator_name='GDP (Yearly)', unit='CNY_billion', period='Y')))
+register(DatasetSpec(dataset_id="macro.cn.gdp.quarterly", category="macro", domain="macro.cn", ak_functions=["macro_china_gdp_quarterly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='gdp_quarterly', indicator_name='GDP (Quarterly)', unit='CNY_billion', period='Q')))
+register(DatasetSpec(dataset_id="macro.cn.gdp.contribution.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_gdp_contribution_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='gdp_contribution_yearly', indicator_name='GDP Contribution by Sector (Yearly)', unit='pct', period='Y')))
+register(DatasetSpec(dataset_id="macro.cn.gdp.pull.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_gdp_pull_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='gdp_pull_yearly', indicator_name='GDP Pull by Sector (Yearly)', unit='pct', period='Y')))
+register(DatasetSpec(dataset_id="macro.cn.industrial_production.yoy", category="macro", domain="macro.cn", ak_functions=["macro_china_industrial_production_yoy"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='industrial_production_yoy', indicator_name='Industrial Production YoY', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.cpi.monthly", category="macro", domain="macro.cn", ak_functions=["macro_china_cpi_monthly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cpi_post(df, p)))
+register(DatasetSpec(dataset_id="macro.cn.ppi.monthly", category="macro", domain="macro.cn", ak_functions=["macro_china_ppi_monthly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_ppi_post(df, p)))
+register(DatasetSpec(dataset_id="macro.cn.gdp_price_index", category="macro", domain="macro.cn", ak_functions=["macro_china_gdp_price_index"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='gdp_deflator', indicator_name='GDP Price Index', unit='index', period='Q')))
+register(DatasetSpec(dataset_id="macro.cn.pmi.yearly", category="macro", domain="macro.cn", ak_functions=["macro_china_pmi_yearly"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_pmi_post(df, p)))
+register(DatasetSpec(dataset_id="macro.cn.non_manu_pmi", category="macro", domain="macro.cn", ak_functions=["macro_china_non_manufacturing_pmi"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_pmi_post(df, {**p, 'segment':'services'})))
+register(DatasetSpec(dataset_id="macro.cn.cci", category="macro", domain="macro.cn", ak_functions=["macro_china_cci"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='cci', indicator_name='Consumer Confidence Index', unit='index', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.employment.urban_unemployment_rate", category="macro", domain="macro.cn", ak_functions=["macro_china_urban_unemployment_rate"], source="stats", param_transform=_noop_params, postprocess=_macro_cn_unemployment_post))
+register(DatasetSpec(dataset_id="macro.cn.retail_sales", category="macro", domain="macro.cn", ak_functions=["macro_china_consumer_goods_retail"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='retail_sales', indicator_name='Total Retail Sales of Consumer Goods', unit='CNY_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.fdi", category="macro", domain="macro.cn", ak_functions=["macro_china_fdi"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fdi', indicator_name='Foreign Direct Investment', unit='USD_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.urban_investment.yoy", category="macro", domain="macro.cn", ak_functions=["macro_china_urban_investment_yoy"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='urban_investment_yoy', indicator_name='Urban Fixed Asset Investment YoY', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.import_export.yoy", category="macro", domain="macro.cn", ak_functions=["macro_china_import_export_yoy"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='import_export_yoy', indicator_name='Import & Export YoY', unit='pct', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.trade_balance", category="macro", domain="macro.cn", ak_functions=["macro_china_trade_balance"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='trade_balance', indicator_name='Trade Balance', unit='USD_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.fx_reserves", category="macro", domain="macro.cn", ak_functions=["macro_china_foreign_exchange_reserves"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='fx_reserves', indicator_name='Foreign Exchange Reserves', unit='USD_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.real_estate", category="macro", domain="macro.cn", ak_functions=["macro_china_real_estate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='real_estate', indicator_name='Real Estate Climate Index', unit='index', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.social_financing.increment", category="macro", domain="macro.cn", ak_functions=["macro_china_society_financing_increment"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='social_financing_increment', indicator_name='Total Social Financing Increment', unit='CNY_billion', period='M')))
+register(DatasetSpec(dataset_id="macro.cn.social_financing.stock", category="macro", domain="macro.cn", ak_functions=["macro_china_society_financing_stock"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='social_financing_stock', indicator_name='Total Social Financing Stock', unit='CNY_billion', period='M')))
