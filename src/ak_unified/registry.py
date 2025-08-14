@@ -3399,8 +3399,88 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
-    # params: entity_type, ids, start, end, bucket_sec
-    return _pd.DataFrame([{ 'note': 'TODO: implement playback using stored bucket_history or recomputation from minute data' }])
+    # params: entity_type, ids, start, end, freq (for boards), window_n
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
+    entity_type = (params.get('entity_type') or 'board').lower()
+    ids: List[str] = params.get('ids') or []
+    start = params.get('start')
+    end = params.get('end')
+    freq = params.get('freq') or 'min5'
+    window_n = int(params.get('window_n') or 10)
+
+    rows: List[Dict[str, Any]] = []
+
+    def safe_pct_change(series: _pd.Series) -> _pd.Series:
+        s = _pd.to_numeric(series, errors='coerce')
+        return s.pct_change()
+
+    if entity_type == 'index':
+        for idx in ids:
+            try:
+                code = _CN_INDEX_ALIAS.get(idx, idx)
+                env = _fetch("market.index.ohlcva", {"symbol": code})
+                df = _pd.DataFrame(env.data)
+                if not df.empty and 'date' in df.columns:
+                    # filter window
+                    if start:
+                        df = df[df['date'] >= start]
+                    if end:
+                        df = df[df['date'] <= end]
+                    df = df.sort_values('date')
+                    ret = safe_pct_change(df['close'])
+                    roll = ret.rolling(window_n, min_periods=max(1, window_n//2)).mean()
+                    series = [
+                        {
+                            "ts": str(d),
+                            "pct_change": float(r) if r == r else None,
+                            "rolling_avg": float(rv) if rv == rv else None,
+                            "close": float(c) if c == c else None,
+                        }
+                        for d, r, rv, c in zip(df['date'], ret.fillna(_np.nan), roll.fillna(_np.nan), _pd.to_numeric(df['close'], errors='coerce'))
+                    ]
+                else:
+                    series = []
+                rows.append({"entity_type": "index", "id": idx, "series": series})
+            except Exception as e:
+                rows.append({"entity_type": "index", "id": idx, "error": str(e)})
+        return _pd.DataFrame(rows)
+
+    # boards: use minute OHLC
+    for board in ids:
+        try:
+            df = _pd.DataFrame([])
+            for ds in ("securities.board.cn.industry.ohlcva_min", "securities.board.cn.concept.ohlcva_min"):
+                env = _fetch(ds, {"symbol": board, "freq": freq})
+                df = _pd.DataFrame(env.data)
+                if not df.empty:
+                    break
+            if not df.empty and 'datetime' in df.columns:
+                df = df.sort_values('datetime')
+                if start:
+                    df = df[df['datetime'] >= start]
+                if end:
+                    df = df[df['datetime'] <= end]
+                ret = safe_pct_change(df['close'])
+                roll = ret.rolling(window_n, min_periods=max(1, window_n//2)).mean()
+                series = [
+                    {
+                        "ts": str(ts),
+                        "pct_change": float(r) if r == r else None,
+                        "rolling_avg": float(rv) if rv == rv else None,
+                        "close": float(c) if c == c else None,
+                    }
+                    for ts, r, rv, c in zip(df['datetime'], ret.fillna(_np.nan), roll.fillna(_np.nan), _pd.to_numeric(df['close'], errors='coerce'))
+                ]
+            else:
+                series = []
+            rows.append({"entity_type": "board", "id": board, "series": series, "freq": freq})
+        except Exception as e:
+            rows.append({"entity_type": "board", "id": board, "error": str(e)})
+
+    return _pd.DataFrame(rows)
 
 register(
     DatasetSpec(
