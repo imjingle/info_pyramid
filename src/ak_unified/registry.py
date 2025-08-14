@@ -5095,3 +5095,27 @@ register(
         compute=_compute_index_constituents_multi,
     )
 )
+
+# Region boards (spot via stock_sector_spot)
+register(
+	DatasetSpec(
+		dataset_id="securities.board.cn.region.spot",
+		category="securities",
+		domain="securities.board.cn",
+		ak_functions=["stock_sector_spot"],
+		source="sina",
+		param_transform=lambda p: {"indicator": "地域"},
+	)
+)
+
+# HSGT region board ranks
+register(
+	DatasetSpec(
+		dataset_id="market.hsgt.board_rank.region",
+		category="market",
+		domain="market.cn",
+		ak_functions=["stock_hsgt_board_rank_em"],
+		source="em",
+		param_transform=lambda p: {"symbol": "北向资金增持地域板块排行", "indicator": p.get("period") or "今日"},
+	)
+)

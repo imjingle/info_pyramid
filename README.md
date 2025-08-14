@@ -74,6 +74,8 @@ RPC examples:
   - Concept list (THS): `/rpc/fetch?dataset_id=securities.board.cn.concept.name_ths`
   - Concept index (THS): `/rpc/fetch?dataset_id=securities.board.cn.concept.index_ths&symbol=半导体`
   - Concept info (THS): `/rpc/fetch?dataset_id=securities.board.cn.concept.info_ths&symbol=半导体`
+  - Region spot (Sina): `/rpc/fetch?dataset_id=securities.board.cn.region.spot`
+  - HSGT Region ranks (EM): `/rpc/fetch?dataset_id=market.hsgt.board_rank.region&period=今日`
 - Volatility (QVIX):
   - Daily: `/rpc/fetch?dataset_id=market.volatility.cn.qvix&ak_function=index_option_300etf_qvix`
   - Minute: `/rpc/fetch?dataset_id=market.volatility.cn.qvix_min&ak_function=index_option_300etf_min_qvix`
