@@ -4078,3 +4078,64 @@ register(
         platform="cross",
     )
 )
+# Alpha Vantage fundamentals
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.overview.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.income_statement.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "period": p.get("period")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.balance_sheet.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "period": p.get("period")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.cash_flow.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "period": p.get("period")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.earnings.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)

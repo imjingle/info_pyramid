@@ -84,8 +84,20 @@ _DEFAULT_RULES: List[NormalizationRule] = [
     NormalizationRule(
         prefix="securities.equity.",
         keep_fields=None,
-        rename_map=None,
-        drop_fields=None,
+    ),
+    # US fundamentals (Alpha Vantage & IBKR)
+    NormalizationRule(
+        prefix="securities.equity.us.fundamentals.",
+        keep_fields=None,
+    ),
+    # US/HK quotes unified basic fields
+    NormalizationRule(
+        prefix="securities.equity.us.quote",
+        keep_fields={"symbol","last","prev_close","change","pct_change","bid","ask","volume"}
+    ),
+    NormalizationRule(
+        prefix="securities.equity.hk.quote",
+        keep_fields={"symbol","last","prev_close","change","pct_change","bid","ask","volume"}
     ),
 ]
 

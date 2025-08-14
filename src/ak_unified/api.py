@@ -590,7 +590,7 @@ async def topic_qmt_board(
 
         # quotes fetcher with adapter fallback
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
-            pref = adapter_priority or ['qmt','akshare','qstock','efinance','adata']
+            pref = adapter_priority or ['qmt','ibkr','akshare','qstock','efinance','adata']
             # qmt path
             if 'qmt' in pref:
                 try:
@@ -913,7 +913,7 @@ async def topic_board(
         from datetime import datetime, timezone, timedelta
         # resolve constituents per board using adapter priority
         def fetch_cons_one(b: str) -> _pd.DataFrame:
-            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+            for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'securities.board.cn.industry.cons' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.cons'
                 ds = ds if adpt == 'akshare' else f"{ds}.{adpt}"
                 try:
@@ -939,7 +939,7 @@ async def topic_board(
         all_syms = sorted({s for lst in groups.values() for s in lst})
 
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
-            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+            for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
                 try:
                     env = fetch_data(ds, {})
@@ -1072,7 +1072,7 @@ async def topic_index(
         from datetime import datetime, timezone, timedelta
         groups: Dict[str, list] = {}
         def fetch_cons(idx: str) -> _pd.DataFrame:
-            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+            for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
                 try:
                     env = fetch_data(ds, {"index_code": idx})
@@ -1097,7 +1097,7 @@ async def topic_index(
         all_syms = sorted({s for lst in groups.values() for s in lst})
 
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
-            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+            for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
                 try:
                     env = fetch_data(ds, {})

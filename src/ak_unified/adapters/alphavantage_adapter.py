@@ -105,6 +105,36 @@ def _parse_global_quote(obj: Dict[str, Any], symbol: str) -> pd.DataFrame:
     }])
 
 
+def _parse_overview(obj: Dict[str, Any], symbol: str) -> pd.DataFrame:
+    if not isinstance(obj, dict) or not obj:
+        return pd.DataFrame([])
+    out = {k.lower().replace(' ', '_'): v for k, v in obj.items()}
+    out['symbol'] = symbol
+    return pd.DataFrame([out])
+
+
+def _parse_statement(obj: Dict[str, Any], key: str, symbol: str) -> pd.DataFrame:
+    # key one of 'annualReports', 'quarterlyReports'
+    arr = obj.get(key) or []
+    if not isinstance(arr, list) or not arr:
+        return pd.DataFrame([])
+    rows = []
+    for it in arr:
+        rec = {kk.lower().replace(' ', '_'): it.get(kk) for kk in it.keys()}
+        rec['symbol'] = symbol
+        rec['period'] = 'annual' if key.startswith('annual') else 'quarterly'
+        rows.append(rec)
+    df = pd.DataFrame(rows)
+    # try convert common numerics
+    for col in df.columns:
+        if col not in {'symbol', 'period', 'fiscaldateending', 'reportedcurrency'}:
+            try:
+                df[col] = pd.to_numeric(df[col], errors='ignore')
+            except Exception:
+                pass
+    return df
+
+
 def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     # US/HK daily
     if dataset_id.endswith('ohlcv_daily.av'):
@@ -132,5 +162,63 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
         func = 'GLOBAL_QUOTE'
         obj = _get({'function': func, 'symbol': symbol})
         df = _parse_global_quote(obj, symbol)
+        return (func, df)
+    # Fundamentals - Overview
+    if dataset_id.endswith('fundamentals.overview.av'):
+        symbol = (params.get('symbol') or '').upper()
+        func = 'OVERVIEW'
+        obj = _get({'function': func, 'symbol': symbol})
+        return (func, _parse_overview(obj, symbol))
+    # Fundamentals - Income Statement (annual/quarterly combined; filter by period param if provided)
+    if dataset_id.endswith('fundamentals.income_statement.av'):
+        symbol = (params.get('symbol') or '').upper()
+        func = 'INCOME_STATEMENT'
+        obj = _get({'function': func, 'symbol': symbol})
+        period = (params.get('period') or '').lower()  # 'annual'|'quarterly'|''
+        frames = []
+        if period in ('', 'annual'):
+            frames.append(_parse_statement(obj, 'annualReports', symbol))
+        if period in ('', 'quarterly'):
+            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
+        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
+        return (func, df)
+    # Fundamentals - Balance Sheet
+    if dataset_id.endswith('fundamentals.balance_sheet.av'):
+        symbol = (params.get('symbol') or '').upper()
+        func = 'BALANCE_SHEET'
+        obj = _get({'function': func, 'symbol': symbol})
+        period = (params.get('period') or '').lower()
+        frames = []
+        if period in ('', 'annual'):
+            frames.append(_parse_statement(obj, 'annualReports', symbol))
+        if period in ('', 'quarterly'):
+            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
+        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
+        return (func, df)
+    # Fundamentals - Cash Flow
+    if dataset_id.endswith('fundamentals.cash_flow.av'):
+        symbol = (params.get('symbol') or '').upper()
+        func = 'CASH_FLOW'
+        obj = _get({'function': func, 'symbol': symbol})
+        period = (params.get('period') or '').lower()
+        frames = []
+        if period in ('', 'annual'):
+            frames.append(_parse_statement(obj, 'annualReports', symbol))
+        if period in ('', 'quarterly'):
+            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
+        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
+        return (func, df)
+    # Fundamentals - Earnings (contains annual and quarterly EPS series)
+    if dataset_id.endswith('fundamentals.earnings.av'):
+        symbol = (params.get('symbol') or '').upper()
+        func = 'EARNINGS'
+        obj = _get({'function': func, 'symbol': symbol})
+        # flatten annual and quarterly EPS
+        rows = []
+        for it in (obj.get('annualEarnings') or []):
+            rows.append({'symbol': symbol, 'period': 'annual', **{k.lower(): it.get(k) for k in it}})
+        for it in (obj.get('quarterlyEarnings') or []):
+            rows.append({'symbol': symbol, 'period': 'quarterly', **{k.lower(): it.get(k) for k in it}})
+        df = pd.DataFrame(rows)
         return (func, df)
     return ('alphavantage.unsupported', pd.DataFrame([]))
