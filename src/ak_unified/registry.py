@@ -27,6 +27,8 @@ class DatasetSpec:
     postprocess: Optional[PostProcess] = None
     compute: Optional[ComputeFunc] = None
     adapter: str = "akshare"
+    platform: str = "cross"  # cross | windows | local-files
+    notes: Optional[str] = None
 
 
 REGISTRY: Dict[str, DatasetSpec] = {}
@@ -2618,6 +2620,8 @@ register(
         source="baostock",
         param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
         adapter="baostock",
+        platform="cross",
+        notes="BaoStock API requires serialized login/logout; adapter enforces mutual exclusion",
     )
 )
 
@@ -2630,6 +2634,8 @@ register(
         source="mootdx",
         param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
         adapter="mootdx",
+        platform="local-files",
+        notes="Requires local TDX data files; best supported on Windows TDX installation",
     )
 )
 
@@ -2643,6 +2649,7 @@ register(
         source="baostock",
         param_transform=lambda p: {"start": p.get("start"), "end": p.get("end")},
         adapter="baostock",
+        platform="cross",
     )
 )
 
@@ -2692,6 +2699,8 @@ register(
         source="mootdx",
         param_transform=_noop_params,
         adapter="mootdx",
+        platform="local-files",
+        notes="Requires TDX block files",
     )
 )
 
@@ -2704,6 +2713,8 @@ register(
         source="mootdx",
         param_transform=_noop_params,
         adapter="mootdx",
+        platform="local-files",
+        notes="Requires TDX block files",
     )
 )
 
@@ -2777,6 +2788,8 @@ register(
         source="qmt",
         param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
         adapter="qmt",
+        platform="windows",
+        notes="Windows-only. Requires QMT/ThinkTrader client and native API",
     )
 )
 
@@ -2789,6 +2802,8 @@ register(
         source="qmt",
         param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq")},
         adapter="qmt",
+        platform="windows",
+        notes="Windows-only. Requires QMT/ThinkTrader client and native API",
     )
 )
 
@@ -2801,6 +2816,8 @@ register(
         source="qmt",
         param_transform=_noop_params,
         adapter="qmt",
+        platform="windows",
+        notes="Windows-only. Requires QMT/ThinkTrader client and native API",
     )
 )
 
@@ -2813,6 +2830,8 @@ register(
         source="qmt",
         param_transform=lambda p: {"start": p.get("start"), "end": p.get("end")},
         adapter="qmt",
+        platform="windows",
+        notes="Windows-only. Requires QMT/ThinkTrader client and native API",
     )
 )
 
@@ -2825,6 +2844,8 @@ register(
         source="qmt",
         param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
         adapter="qmt",
+        platform="windows",
+        notes="Windows-only. Requires QMT/ThinkTrader client and native API",
     )
 )
 

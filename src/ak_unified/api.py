@@ -33,6 +33,8 @@ async def rpc_datasets() -> Dict[str, Any]:
             "source": spec.source,
             "computed": spec.compute is not None,
             "adapter": getattr(spec, 'adapter', 'akshare'),
+            "platform": getattr(spec, 'platform', 'cross'),
+            "notes": getattr(spec, 'notes', None),
         })
     return {"items": items}
 
