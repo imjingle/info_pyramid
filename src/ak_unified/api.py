@@ -5,8 +5,10 @@ from typing import Any, Dict, Optional, List
 
 from fastapi import FastAPI, Query, Body
 from sse_starlette.sse import EventSourceResponse
+from starlette.responses import JSONResponse
 
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
+from .dispatcher import get_ohlcva
 from .registry import REGISTRY
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 
@@ -168,17 +170,29 @@ async def rpc_batch(
 
 @app.get("/rpc/ohlcv")
 async def rpc_ohlcv(
-    symbol: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    adjust: str = "none",
-    ak_function: Optional[str] = None,
-    allow_fallback: bool = False,
-    adapter: Optional[str] = None,
-) -> Dict[str, Any]:
+    symbol: str = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    adjust: str = Query("none"),
+    ak_function: Optional[str] = Query(None),
+    allow_fallback: bool = Query(False),
+):
     # ohlcv uses the CN akshare dataset; for other adapters use /rpc/fetch with adapter
     env = get_ohlcv(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
-    return env.model_dump()
+    return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
+
+
+@app.get("/rpc/ohlcva")
+async def rpc_ohlcva(
+    symbol: str = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    adjust: str = Query("none"),
+    ak_function: Optional[str] = Query(None),
+    allow_fallback: bool = Query(False),
+):
+    env = get_ohlcva(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
+    return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 
 async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float, symbols: Optional[List[str]] = None):

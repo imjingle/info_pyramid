@@ -45,9 +45,9 @@ def _noop_params(p: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ohlcv_stock_daily_params(p: Dict[str, Any]) -> Dict[str, Any]:
-    symbol = p.get("symbol") or p.get("symbols")
-    start = p.get("start")
-    end = p.get("end")
+    symbol = _strip_suffix(p.get("symbol") or p.get("symbols"))
+    start = _yyyymmdd(p.get("start"))
+    end = _yyyymmdd(p.get("end"))
     adjust = p.get("adjust") or ""
     return {
         "symbol": symbol,
@@ -59,9 +59,9 @@ def _ohlcv_stock_daily_params(p: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _index_daily_params(p: Dict[str, Any]) -> Dict[str, Any]:
-    symbol = p.get("symbol")
-    start = p.get("start")
-    end = p.get("end")
+    symbol = _strip_suffix(p.get("symbol"))
+    start = _yyyymmdd(p.get("start"))
+    end = _yyyymmdd(p.get("end"))
     return {"symbol": symbol, "start_date": start, "end_date": end}
 
 
@@ -269,7 +269,34 @@ register(
 
 register(
     DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcva_daily",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_zh_a_hist", "stock_zh_a_hist_pre"],
+        source="em",
+        param_transform=_ohlcv_stock_daily_params,
+        field_mapping=FIELD_OHLCV_CN,
+        freq_support=["daily"],
+        adjust_support=["none", "qfq", "hfq"],
+    )
+)
+
+register(
+    DatasetSpec(
         dataset_id="market.index.ohlcv",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["stock_zh_index_daily"],
+        source="em",
+        param_transform=_index_daily_params,
+        field_mapping=FIELD_INDEX_DAILY_CN,
+        freq_support=["daily"],
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.ohlcva",
         category="market",
         domain="market.index.cn",
         ak_functions=["stock_zh_index_daily"],
@@ -557,6 +584,19 @@ register(
     )
 )
 
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcva_min",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_zh_a_hist_min_em", "stock_zh_a_hist_pre_min_em", "stock_zh_a_minute"],
+        source="em",
+        param_transform=_eq_min_params,
+        field_mapping=FIELD_MIN_OHLCV_CN,
+        freq_support=["min1", "min5", "min15", "min30", "min60"],
+    )
+)
+
 # Futures minute
 register(
     DatasetSpec(
@@ -688,10 +728,34 @@ register(
     )
 )
 
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.ohlcva_daily",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_OHLCV,
+    )
+)
+
 # Boards - concept daily history
 register(
     DatasetSpec(
         dataset_id="securities.board.cn.concept.ohlcv_daily",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol")},
+        field_mapping=FIELD_BOARD_OHLCV,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.ohlcva_daily",
         category="securities",
         domain="securities.board.cn",
         ak_functions=["stock_board_concept_hist_em"],
@@ -714,10 +778,34 @@ register(
     )
 )
 
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.ohlcva_min",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_industry_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol"), "period": _minute_period_map(p.get("freq"))},
+        field_mapping=FIELD_MIN_OHLCV_CN,
+    )
+)
+
 # Boards - concept minute
 register(
     DatasetSpec(
         dataset_id="securities.board.cn.concept.ohlcv_min",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("board_code") or p.get("symbol"), "period": _minute_period_map(p.get("freq"))},
+        field_mapping=FIELD_MIN_OHLCV_CN,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.ohlcva_min",
         category="securities",
         domain="securities.board.cn",
         ak_functions=["stock_board_concept_hist_min_em"],

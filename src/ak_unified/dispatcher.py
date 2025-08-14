@@ -135,3 +135,8 @@ def get_fund_nav(fund_code: str, start: Optional[str] = None, end: Optional[str]
     if dataset == "securities.fund.cn.nav":
         params.update({"start": start, "end": end})
     return fetch_data(dataset, params, ak_function=ak_function, allow_fallback=allow_fallback)
+
+
+def get_ohlcva(symbol: str, start: Optional[str] = None, end: Optional[str] = None, adjust: str = "none", *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+    params = {"symbol": symbol, "start": start, "end": end, "adjust": adjust}
+    return fetch_data("securities.equity.cn.ohlcva_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
