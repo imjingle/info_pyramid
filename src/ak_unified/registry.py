@@ -3606,3 +3606,185 @@ register(
         compute=_compute_volume_percentile,
     )
 )
+
+def _compute_board_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
+    # params: board_kind, boards[], adapter_priority[], topn
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    board_kind = (params.get('board_kind') or 'industry').lower()
+    boards: List[str] = params.get('boards') or []
+    topn = int(params.get('topn') or 5)
+    adapter_priority: List[str] = params.get('adapter_priority') or ['akshare','qstock','efinance','adata']
+
+    def fetch_cons_one(b: str) -> _pd.DataFrame:
+        for adpt in adapter_priority:
+            ds = 'securities.board.cn.industry.cons' if board_kind.startswith('i') else 'securities.board.cn.concept.cons'
+            ds = ds if adpt == 'akshare' else f"{ds}.{adpt}"
+            try:
+                env = _fetch(ds, {"board_code": b})
+                df = _pd.DataFrame(env.data)
+                if not df.empty and 'symbol' in df.columns:
+                    return df[['symbol']]
+            except Exception:
+                continue
+        return _pd.DataFrame([])
+
+    groups: Dict[str, list] = {}
+    for b in boards:
+        df = fetch_cons_one(b)
+        groups[b] = df['symbol'].astype(str).tolist() if not df.empty else []
+    all_syms = sorted({s for lst in groups.values() for s in lst})
+
+    def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+        for adpt in adapter_priority:
+            ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+            try:
+                env = _fetch(ds, {})
+                q = _pd.DataFrame(env.data)
+                if not q.empty and 'symbol' in q.columns:
+                    q = q[q['symbol'].astype(str).isin(symbols)]
+                    if not q.empty:
+                        return q
+            except Exception:
+                continue
+        return _pd.DataFrame([])
+
+    q = fetch_quotes(all_syms)
+    if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+        q['pct_change'] = (_pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0) * 100.0
+    q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+    q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+
+    aggs: List[Dict[str, Any]] = []
+    vals: List[float] = []
+    for b, syms in groups.items():
+        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+        if sub.empty:
+            aggs.append({"board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": []})
+            continue
+        winners = (sub['pct_change'] > 0).mean()
+        avg_pct = sub['pct_change'].mean()
+        total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+        top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+        top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+        if avg_pct == avg_pct:
+            vals.append(float(avg_pct))
+        aggs.append({
+            "board_name": b,
+            "count": int(len(sub)),
+            "winners_ratio": float(winners) if winners == winners else None,
+            "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+            "total_amount": float(total_amt) if total_amt == total_amt else None,
+            "top_amount": top_list,
+        })
+    # percentiles vs peers
+    out_rows: List[Dict[str, Any]] = []
+    for a in aggs:
+        v = a.get('avg_pct_change')
+        if v is not None and vals:
+            a['pct_rank_vs_boards'] = float((_pd.Series(vals) < v).mean())
+        else:
+            a['pct_rank_vs_boards'] = None
+        out_rows.append(a)
+    return _pd.DataFrame(out_rows)
+
+
+def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
+    # params: index_codes[], adapter_priority[], topn
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    index_codes: List[str] = params.get('index_codes') or []
+    topn = int(params.get('topn') or 5)
+    adapter_priority: List[str] = params.get('adapter_priority') or ['akshare','qstock','efinance','adata']
+
+    def fetch_cons(idx: str) -> _pd.DataFrame:
+        for adpt in adapter_priority:
+            ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
+            try:
+                env = _fetch(ds, {"index_code": idx})
+                df = _pd.DataFrame(env.data)
+                if not df.empty and 'symbol' in df.columns:
+                    return df[['symbol']]
+            except Exception:
+                continue
+        return _pd.DataFrame([])
+
+    groups: Dict[str, list] = {}
+    for idx in index_codes:
+        df = fetch_cons(idx)
+        groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+    all_syms = sorted({s for lst in groups.values() for s in lst})
+
+    def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+        for adpt in adapter_priority:
+            ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+            try:
+                env = _fetch(ds, {})
+                q = _pd.DataFrame(env.data)
+                if not q.empty and 'symbol' in q.columns:
+                    q = q[q['symbol'].astype(str).isin(symbols)]
+                    if not q.empty:
+                        return q
+            except Exception:
+                continue
+        return _pd.DataFrame([])
+
+    q = fetch_quotes(all_syms)
+    if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+        q['pct_change'] = (_pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0) * 100.0
+    q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+    q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+
+    aggs: List[Dict[str, Any]] = []
+    vals: List[float] = []
+    for idx, syms in groups.items():
+        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+        if sub.empty:
+            aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": []})
+            continue
+        winners = (sub['pct_change'] > 0).mean()
+        avg_pct = sub['pct_change'].mean()
+        total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+        top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+        top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+        if avg_pct == avg_pct:
+            vals.append(float(avg_pct))
+        aggs.append({
+            "index_code": idx,
+            "count": int(len(sub)),
+            "winners_ratio": float(winners) if winners == winners else None,
+            "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+            "total_amount": float(total_amt) if total_amt == total_amt else None,
+            "top_amount": top_list,
+        })
+    out_rows: List[Dict[str, Any]] = []
+    for a in aggs:
+        v = a.get('avg_pct_change')
+        if v is not None and vals:
+            a['pct_rank_vs_indices'] = float((_pd.Series(vals) < v).mean())
+        else:
+            a['pct_rank_vs_indices'] = None
+        out_rows.append(a)
+    return _pd.DataFrame(out_rows)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.board_aggregation.snapshot",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_board_aggregation_snapshot,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.index_aggregation.snapshot",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_index_aggregation_snapshot,
+    )
+)
