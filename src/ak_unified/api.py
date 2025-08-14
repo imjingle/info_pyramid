@@ -323,3 +323,146 @@ async def qmt_quotes(symbols: Optional[List[str]] = Query(None)) -> Dict[str, An
         return {"ok": True, "ak_function": tag, "data": df.to_dict(orient='records')}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/topic/qmt/board")
+async def topic_qmt_board(
+    board_kind: str = Query("industry"),  # industry|concept
+    boards: Optional[List[str]] = Query(None),  # list of board names to aggregate; if empty, aggregates all
+    interval: float = 2.0,
+) -> EventSourceResponse:
+    async def gen():
+        # Check environment
+        status = test_qmt_import()
+        if not status.get("ok"):
+            yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
+            return
+        # Resolve constituents via QMT dataset
+        ds = 'securities.board.cn.industry.qmt' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.qmt'
+        env = fetch_data(ds, {})
+        df_list = env.data
+        if not df_list:
+            yield {"event": "update", "data": {"ok": True, "boards": [], "aggregates": []}}
+            return
+        import pandas as _pd
+        df = _pd.DataFrame(df_list)
+        if boards:
+            df = df[df['board_name'].astype(str).isin(boards)]
+        # Build mapping board_name -> symbols
+        groups = df.groupby('board_name')['symbol'].apply(list).to_dict()
+        # Flatten symbols and subscribe
+        sym_set = sorted({s for lst in groups.values() for s in lst})
+        from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+        try:
+            subscribe_quotes(sym_set)
+            failures = 0
+            while True:
+                try:
+                    tag, qdf = fetch_realtime_quotes(sym_set)
+                    q = _pd.DataFrame(qdf)
+                    # basic normalization
+                    if 'pct_change' not in q.columns:
+                        # try compute from last and prev_close
+                        if 'last' in q.columns and 'prev_close' in q.columns:
+                            q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
+                        else:
+                            q['pct_change'] = _pd.NA
+                    q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+                    q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+                    # aggregate per board
+                    aggs = []
+                    for b, syms in groups.items():
+                        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                        if sub.empty:
+                            aggs.append({"board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None})
+                            continue
+                        winners = (sub['pct_change'] > 0).mean()
+                        avg_pct = sub['pct_change'].mean()
+                        total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+                        top = sub.sort_values('pct_change', ascending=False).head(1)
+                        top_row = top.iloc[0].to_dict() if not top.empty else {}
+                        aggs.append({
+                            "board_name": b,
+                            "count": int(len(sub)),
+                            "winners_ratio": float(winners) if winners == winners else None,
+                            "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+                            "total_amount": float(total_amt) if total_amt == total_amt else None,
+                            "top_mover": {"symbol": top_row.get('symbol'), "pct_change": top_row.get('pct_change')}
+                        })
+                    payload = {"ok": True, "provider": "qmt", "boards": list(groups.keys()), "aggregates": aggs}
+                    yield {"event": "update", "data": payload}
+                    failures = 0
+                except Exception as e:  # noqa: BLE001
+                    failures += 1
+                    yield {"event": "error", "data": {"ok": False, "error": str(e), "retry": failures}}
+                    if failures >= 5:
+                        break
+                await asyncio.sleep(interval)
+        finally:
+            try:
+                unsubscribe_quotes(sym_set)
+            except Exception:
+                pass
+    return EventSourceResponse(gen())
+
+
+@app.get("/topic/qmt/index")
+async def topic_qmt_index(
+    index_codes: List[str] = Query(...),  # e.g., 000300.SH
+    interval: float = 2.0,
+) -> EventSourceResponse:
+    async def gen():
+        status = test_qmt_import()
+        if not status.get("ok"):
+            yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
+            return
+        import pandas as _pd
+        from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+        # Resolve constituents for each index
+        groups: Dict[str, list] = {}
+        for idx in index_codes:
+            env = fetch_data('market.index.constituents.qmt', {"index_code": idx})
+            df = _pd.DataFrame(env.data)
+            groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+        sym_set = sorted({s for lst in groups.values() for s in lst})
+        try:
+            subscribe_quotes(sym_set)
+            failures = 0
+            while True:
+                try:
+                    tag, qdf = fetch_realtime_quotes(sym_set)
+                    q = _pd.DataFrame(qdf)
+                    if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+                        q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
+                    q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+                    q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+                    aggs = []
+                    for idx, syms in groups.items():
+                        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                        if sub.empty:
+                            aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None})
+                            continue
+                        winners = (sub['pct_change'] > 0).mean()
+                        avg_pct = sub['pct_change'].mean()
+                        total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+                        aggs.append({
+                            "index_code": idx,
+                            "count": int(len(sub)),
+                            "winners_ratio": float(winners) if winners == winners else None,
+                            "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+                            "total_amount": float(total_amt) if total_amt == total_amt else None,
+                        })
+                    yield {"event": "update", "data": {"ok": True, "provider": "qmt", "indices": list(groups.keys()), "aggregates": aggs}}
+                    failures = 0
+                except Exception as e:  # noqa: BLE001
+                    failures += 1
+                    yield {"event": "error", "data": {"ok": False, "error": str(e), "retry": failures}}
+                    if failures >= 5:
+                        break
+                await asyncio.sleep(interval)
+        finally:
+            try:
+                unsubscribe_quotes(sym_set)
+            except Exception:
+                pass
+    return EventSourceResponse(gen())
