@@ -2632,3 +2632,52 @@ register(
         adapter="mootdx",
     )
 )
+
+# BaoStock complementary datasets
+register(
+    DatasetSpec(
+        dataset_id="market.calendar.baostock",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=lambda p: {"start": p.get("start"), "end": p.get("end")},
+        adapter="baostock",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.industry.cn.class.baostock",
+        category="securities",
+        domain="securities.industry.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=_noop_params,
+        adapter="baostock",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents.baostock",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=lambda p: {"index_code": p.get("index_code") or p.get("symbol")},
+        adapter="baostock",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.adjust_factor.baostock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="baostock",
+    )
+)
