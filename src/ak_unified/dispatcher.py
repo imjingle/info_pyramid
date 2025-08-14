@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+import pandas as _pd
 
 from .schemas.envelope import DataEnvelope, Pagination
 from .registry import REGISTRY, DatasetSpec
@@ -65,20 +66,101 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     asyncio.set_event_loop(loop)
     pool = loop.run_until_complete(get_pool())
     cached: List[Dict[str, Any]] = []
-    if pool is not None:
-        # heuristics for key fields
-        symbol = params.get("symbol")
-        index_symbol = params.get("index_code") or params.get("index_symbol")
-        board_code = params.get("board_code") or params.get("symbol") if "board" in dataset_id else None
-        time_field = "datetime" if "ohlcv_min" in dataset_id or dataset_id.endswith(".ohlcva_min") else "date"
-        start = params.get("start")
-        end = params.get("end")
+    is_realtime = 'quote' in dataset_id
+    time_field = "datetime" if ("ohlcv_min" in dataset_id or dataset_id.endswith(".ohlcva_min")) else "date"
+    symbol = params.get("symbol")
+    index_symbol = params.get("index_code") or params.get("index_symbol")
+    board_code = params.get("board_code") or (params.get("symbol") if "board" in dataset_id else None)
+    start = params.get("start")
+    end = params.get("end")
+    if pool is not None and not is_realtime:
         cached = loop.run_until_complete(_db_fetch(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field))
-        # if full coverage not guaranteed, we will still fetch from source and merge; implementing precise gap detection is postponed for simplicity
+        # If fully covered by cache for date-based datasets, return immediately from cache
+        if time_field == 'date' and start and end and cached:
+            try:
+                cdf = _pd.DataFrame(cached)
+                if 'date' in cdf.columns:
+                    want = _pd.date_range(start=start, end=end, freq='D').strftime('%Y-%m-%d')
+                    have = _pd.to_datetime(cdf['date']).dt.strftime('%Y-%m-%d')
+                    missing = sorted(list(set(want) - set(have)))
+                    if not missing:
+                        env = _envelope(spec, params, cached)
+                        env.ak_function = 'cache'
+                        env.data_source = 'postgresql'
+                        return env
+            except Exception:
+                pass
 
     ak_params = _apply_param_transform(spec, params)
 
-    # dispatch adapter
+    # dispatch adapter (with gap fill for date-based datasets)
+    new_records: List[Dict[str, Any]] = []
+    if pool is not None and not is_realtime and time_field == 'date' and start and end and cached:
+        # compute missing date spans
+        try:
+            want = _pd.date_range(start=start, end=end, freq='D').strftime('%Y-%m-%d').tolist()
+            have = _pd.to_datetime(_pd.DataFrame(cached)['date']).dt.strftime('%Y-%m-%d').tolist()
+            missing = [d for d in want if d not in set(have)]
+            def spans(ds: List[str]) -> List[Tuple[str, str]]:
+                if not ds:
+                    return []
+                out: List[Tuple[str, str]] = []
+                s = e = ds[0]
+                for d in ds[1:]:
+                    if ( _pd.to_datetime(d) - _pd.to_datetime(e) ).days == 1:
+                        e = d
+                    else:
+                        out.append((s, e))
+                        s = e = d
+                out.append((s, e))
+                return out
+            miss_spans = spans(missing)
+        except Exception:
+            miss_spans = [(start, end)]
+        # fetch each span
+        for s1, e1 in miss_spans:
+            part_params = dict(params)
+            part_params['start'] = s1
+            part_params['end'] = e1
+            part_ak_params = _apply_param_transform(spec, part_params)
+            if spec.adapter == "akshare":
+                fn_used, df = call_akshare(spec.ak_functions, part_ak_params, field_mapping=spec.field_mapping, allow_fallback=allow_fallback, function_name=ak_function)
+            elif spec.adapter == "baostock":
+                from .adapters.baostock_adapter import call_baostock
+                fn_used, df = call_baostock(dataset_id, part_ak_params)
+            elif spec.adapter == "mootdx":
+                from .adapters.mootdx_adapter import call_mootdx
+                fn_used, df = call_mootdx(dataset_id, part_ak_params)
+            elif spec.adapter == "qmt":
+                from .adapters.qmt_adapter import call_qmt
+                fn_used, df = call_qmt(dataset_id, part_ak_params)
+            elif spec.adapter == "efinance":
+                from .adapters.efinance_adapter import call_efinance
+                fn_used, df = call_efinance(dataset_id, part_ak_params)
+            elif spec.adapter == "qstock":
+                from .adapters.qstock_adapter import call_qstock
+                fn_used, df = call_qstock(dataset_id, part_ak_params)
+            elif spec.adapter == "adata":
+                from .adapters.adata_adapter import call_adata
+                fn_used, df = call_adata(dataset_id, part_ak_params)
+            else:
+                raise RuntimeError(f"Unknown adapter: {spec.adapter}")
+            df = _postprocess(spec, df, part_params)
+            part_records = df.to_dict(orient="records")
+            new_records.extend(part_records)
+        records = cached + new_records
+        # upsert
+        if new_records:
+            try:
+                loop.run_until_complete(_db_upsert(pool, dataset_id, new_records))
+            except Exception:
+                pass
+        env = _envelope(spec, params, records)
+        env.ak_function = 'cache+source'
+        env.data_source = spec.source
+        return env
+
+    # no cache or not eligible for gap fill: single fetch
     if spec.adapter == "akshare":
         fn_used, df = call_akshare(
             spec.ak_functions,
@@ -112,13 +194,13 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     records = df.to_dict(orient="records")
 
     # merge with cache and upsert
-    if pool is not None and records:
+    if pool is not None and records and not is_realtime:
         try:
             # naive merge by row_key uniqueness is handled in upsert
             loop.run_until_complete(_db_upsert(pool, dataset_id, records))
             if cached:
                 # return union (cached + fresh unique)
-                # simple de-dup by row_key reusing storage internal rule requires recompute; here we drop duplicates by (symbol/index_symbol/board_code,time)
+                # simple de-dup by (symbol/index_symbol/board_code,time)
                 def key(r: Dict[str, Any]):
                     return (r.get('symbol') or r.get('index_symbol') or r.get('board_code'), r.get('date') or r.get('datetime'))
                 merged = {key(r): r for r in cached}
