@@ -78,6 +78,15 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     elif spec.adapter == "qmt":
         from .adapters.qmt_adapter import call_qmt
         fn_used, df = call_qmt(dataset_id, ak_params)
+    elif spec.adapter == "efinance":
+        from .adapters.efinance_adapter import call_efinance
+        fn_used, df = call_efinance(dataset_id, ak_params)
+    elif spec.adapter == "qstock":
+        from .adapters.qstock_adapter import call_qstock
+        fn_used, df = call_qstock(dataset_id, ak_params)
+    elif spec.adapter == "adata":
+        from .adapters.adata_adapter import call_adata
+        fn_used, df = call_adata(dataset_id, ak_params)
     else:
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 

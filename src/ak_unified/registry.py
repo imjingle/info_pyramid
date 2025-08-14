@@ -2910,3 +2910,93 @@ register(
         notes="Windows-only. QMT corporate actions",
     )
 )
+
+# efinance complementary (cross-platform)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.efinance",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_min.efinance",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.efinance",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="efinance",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="efinance",
+        platform="cross",
+    )
+)
+
+# qstock complementary (cross-platform)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.qstock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="qstock",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.qstock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="qstock",
+        platform="cross",
+    )
+)
+
+# adata complementary (cross-platform, hypothetical API)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.adata",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="adata",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.adata",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="adata",
+        platform="cross",
+    )
+)
