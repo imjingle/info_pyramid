@@ -28,7 +28,7 @@ uv run python -c "import ak_unified as aku; print(aku.__version__)"
   - `market.cn.aggregation.playback`（指数/板块时序回放）
   - `market.cn.industry_weight_distribution`（指数行业权重分布，自动近似权重）
   - `market.cn.volume_percentile`（量能分位）
-- Complementary adapters: baostock, mootdx (Windows偏好), qmt (Windows-only), efinance, qstock, adata, yfinance, Alpha Vantage
+- Complementary adapters: baostock, mootdx (Windows偏好), qmt (Windows-only), efinance, qstock, adata, yfinance, Alpha Vantage, IBKR
 
 ## FastAPI
 Run:
@@ -51,6 +51,13 @@ SSE topics:
 - QMT index aggregation: `/topic/qmt/index?index_codes=000300.SH&adapter_priority=qmt&adapter_priority=akshare`
 - Board aggregation (polling): `/topic/board?board_kind=industry&boards=半导体&interval=2&window_n=10&topn=5&bucket_sec=60&history_buckets=30`
 - Index aggregation (polling): `/topic/index?index_codes=000300.SH&interval=2&window_n=10&topn=5&bucket_sec=60&history_buckets=30`
+
+## Markets coverage
+- A 股（AkShare 为主，baostock/mootdx 等补充）：量价与多数基本面
+- 港股：量价（AkShare 日线；分钟 yfinance/Alpha Vantage/IBKR）、基本面（AkShare/IBKR）
+- 美股：量价（yfinance/Alpha Vantage/IBKR）、基本面（Alpha Vantage 概览/三表/盈利；IBKR 多报告 XML）
+
+所有数据均通过统一的 `DataEnvelope` 返回，并在存储/返回前按数据集前缀进行 schema 归一（时间字段、标识字段、常用数值字段等）；US/HK `quote` 已统一基本字段：`symbol,last,prev_close,change,pct_change,bid,ask,volume`。
 
 ## US/HK data sources
 - yfinance（可选安装 `uv add yfinance` 或 `uv sync --extra yfinance`）
