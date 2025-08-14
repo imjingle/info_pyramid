@@ -711,3 +711,205 @@ async def topic_qmt_index(
             except Exception:
                 pass
     return EventSourceResponse(gen())
+
+@app.get("/topic/board")
+async def topic_board(
+    board_kind: str = Query("industry"),  # industry|concept
+    boards: List[str] = Query(...),
+    interval: float = 2.0,
+    window_n: int = 10,
+    topn: int = 5,
+    adapter_priority: Optional[List[str]] = Query(None),  # e.g., akshare,qstock,efinance,adata
+    include_percentiles: bool = True,
+) -> EventSourceResponse:
+    async def gen():
+        import pandas as _pd
+        from collections import deque
+        from datetime import datetime, timezone
+        # resolve constituents per board using adapter priority
+        def fetch_cons_one(b: str) -> _pd.DataFrame:
+            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+                ds = 'securities.board.cn.industry.cons' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.cons'
+                ds = ds if adpt == 'akshare' else f"{ds}.{adpt}"
+                try:
+                    env = fetch_data(ds, {"board_code": b})
+                    df = _pd.DataFrame(env.data)
+                    if not df.empty and 'symbol' in df.columns:
+                        return df[['symbol']]
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
+
+        groups: Dict[str, list] = {}
+        for b in boards:
+            df = fetch_cons_one(b)
+            groups[b] = df['symbol'].astype(str).tolist() if not df.empty else []
+        all_syms = sorted({s for lst in groups.values() for s in lst})
+
+        async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+                ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+                try:
+                    env = fetch_data(ds, {})
+                    q = _pd.DataFrame(env.data)
+                    if not q.empty and 'symbol' in q.columns:
+                        q = q[q['symbol'].astype(str).isin(symbols)]
+                        if not q.empty:
+                            return q
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
+
+        rolling = {b: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for b in groups.keys()}
+        failures = 0
+        while True:
+            try:
+                q = await fetch_quotes(all_syms)
+                if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+                    q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
+                q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+                q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+                aggs = []
+                board_vals = []
+                for b, syms in groups.items():
+                    sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                    if sub.empty:
+                        aggs.append({
+                            "board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None,
+                            "total_amount": None, "top_amount": [], "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                        })
+                        continue
+                    winners = (sub['pct_change'] > 0).mean()
+                    avg_pct = sub['pct_change'].mean()
+                    total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+                    top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+                    top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+                    rolling[b]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
+                    rolling[b]["winners"].append(float(winners) if winners == winners else 0.0)
+                    board_vals.append((b, float(avg_pct) if avg_pct == avg_pct else None))
+                    aggs.append({
+                        "board_name": b,
+                        "count": int(len(sub)),
+                        "winners_ratio": float(winners) if winners == winners else None,
+                        "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+                        "total_amount": float(total_amt) if total_amt == total_amt else None,
+                        "top_amount": top_list,
+                        "rolling_avg_pct_change": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None,
+                        "rolling_winners_ratio": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
+                        "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                    })
+                if include_percentiles and aggs:
+                    vals = [v for (_, v) in board_vals if v is not None]
+                    for a in aggs:
+                        v = a.get('avg_pct_change')
+                        if v is not None and vals:
+                            a['pct_rank_vs_boards'] = float((_pd.Series(vals) < v).mean())
+                        else:
+                            a['pct_rank_vs_boards'] = None
+                yield {"event": "update", "data": {"ok": True, "boards": boards, "aggregates": aggs}}
+                failures = 0
+            except Exception as e:
+                failures += 1
+                yield {"event": "error", "data": {"ok": False, "error": str(e), "retry": failures}}
+                if failures >= 5:
+                    break
+            await asyncio.sleep(interval)
+    return EventSourceResponse(gen())
+
+@app.get("/topic/index")
+async def topic_index(
+    index_codes: List[str] = Query(...),
+    interval: float = 2.0,
+    window_n: int = 10,
+    topn: int = 5,
+    adapter_priority: Optional[List[str]] = Query(None),
+    include_percentiles: bool = True,
+) -> EventSourceResponse:
+    async def gen():
+        import pandas as _pd
+        from collections import deque
+        from datetime import datetime, timezone
+        groups: Dict[str, list] = {}
+        def fetch_cons(idx: str) -> _pd.DataFrame:
+            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+                ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
+                try:
+                    env = fetch_data(ds, {"index_code": idx})
+                    df = _pd.DataFrame(env.data)
+                    if not df.empty and 'symbol' in df.columns:
+                        return df[['symbol']]
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
+
+        for idx in index_codes:
+            df = fetch_cons(idx)
+            groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+        all_syms = sorted({s for lst in groups.values() for s in lst})
+
+        async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+            for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
+                ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+                try:
+                    env = fetch_data(ds, {})
+                    q = _pd.DataFrame(env.data)
+                    if not q.empty and 'symbol' in q.columns:
+                        q = q[q['symbol'].astype(str).isin(symbols)]
+                        if not q.empty:
+                            return q
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
+
+        rolling = {idx: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for idx in groups.keys()}
+        failures = 0
+        while True:
+            try:
+                q = await fetch_quotes(all_syms)
+                if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+                    q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
+                q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
+                q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
+                aggs = []
+                idx_vals = []
+                for idx, syms in groups.items():
+                    sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                    if sub.empty:
+                        aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "bucket_ts": datetime.now(timezone.utc).isoformat()})
+                        continue
+                    winners = (sub['pct_change'] > 0).mean()
+                    avg_pct = sub['pct_change'].mean()
+                    total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+                    top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+                    top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+                    rolling[idx]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
+                    rolling[idx]["winners"].append(float(winners) if winners == winners else 0.0)
+                    idx_vals.append((idx, float(avg_pct) if avg_pct == avg_pct else None))
+                    aggs.append({
+                        "index_code": idx,
+                        "count": int(len(sub)),
+                        "winners_ratio": float(winners) if winners == winners else None,
+                        "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
+                        "total_amount": float(total_amt) if total_amt == total_amt else None,
+                        "top_amount": top_list,
+                        "rolling_avg_pct_change": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None,
+                        "rolling_winners_ratio": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
+                        "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                    })
+                if include_percentiles and aggs:
+                    vals = [v for (_, v) in idx_vals if v is not None]
+                    for a in aggs:
+                        v = a.get('avg_pct_change')
+                        if v is not None and vals:
+                            a['pct_rank_vs_indices'] = float((_pd.Series(vals) < v).mean())
+                        else:
+                            a['pct_rank_vs_indices'] = None
+                yield {"event": "update", "data": {"ok": True, "indices": index_codes, "aggregates": aggs}}
+                failures = 0
+            except Exception as e:
+                failures += 1
+                yield {"event": "error", "data": {"ok": False, "error": str(e), "retry": failures}}
+                if failures >= 5:
+                    break
+            await asyncio.sleep(interval)
+    return EventSourceResponse(gen())
