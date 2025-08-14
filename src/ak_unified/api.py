@@ -127,7 +127,6 @@ async def rpc_fetch_async(
             "data_source": "baostock",
         }
         return env
-    # generic async: run sync fetch in executor
     loop = asyncio.get_running_loop()
     env = await loop.run_in_executor(None, lambda: fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback))
     return env.model_dump()
@@ -141,24 +140,38 @@ async def rpc_ohlcv(
     adjust: str = "none",
     ak_function: Optional[str] = None,
     allow_fallback: bool = False,
+    adapter: Optional[str] = None,
 ) -> Dict[str, Any]:
+    # ohlcv uses the CN akshare dataset; for other adapters use /rpc/fetch with adapter
     env = get_ohlcv(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
     return env.model_dump()
 
 
 @app.get("/rpc/quote")
-async def rpc_quote(ak_function: Optional[str] = None, allow_fallback: bool = False) -> Dict[str, Any]:
+async def rpc_quote(ak_function: Optional[str] = None, allow_fallback: bool = False, adapter: Optional[str] = None) -> Dict[str, Any]:
     env = get_market_quote(ak_function=ak_function, allow_fallback=allow_fallback)
     return env.model_dump()
 
 
-async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], interval_sec: float):
+async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float):
+    dataset_id = _apply_adapter_variant(dataset_id, adapter)
     while True:
-        env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=False)
-        yield {
-            "event": "update",
-            "data": env.model_dump_json()
-        }
+        spec = REGISTRY.get(dataset_id)
+        if spec and getattr(spec, 'adapter', 'akshare') == 'baostock':
+            from .adapters.baostock_adapter import acall_baostock
+            tag, df = await acall_baostock(dataset_id, params)
+            payload = {
+                "schema_version": "1.0.0",
+                "provider": "baostock",
+                "dataset": dataset_id,
+                "params": params,
+                "data": df.to_dict(orient="records"),
+                "ak_function": tag,
+            }
+            yield {"event": "update", "data": payload}
+        else:
+            env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=False)
+            yield {"event": "update", "data": env.model_dump()}
         await asyncio.sleep(interval_sec)
 
 
@@ -167,6 +180,7 @@ async def topic_stream(
     dataset_id: str,
     ak_function: Optional[str] = None,
     interval: float = 2.0,
+    adapter: Optional[str] = None,
     # common params accepted for streaming
     symbol: Optional[str] = None,
     start: Optional[str] = None,
@@ -206,5 +220,5 @@ async def topic_stream(
     }.items():
         if v is not None:
             params[k] = v
-    generator = _polling_generator(dataset_id, params, ak_function, interval)
+    generator = _polling_generator(dataset_id, params, ak_function, adapter, interval)
     return EventSourceResponse(generator)
