@@ -48,7 +48,7 @@ def _envelope(
     )
 
 
-def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True) -> DataEnvelope:
     spec = _resolve_spec(dataset_id)
     params = params or {}
 
@@ -64,7 +64,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     # try cache first (only for non-realtime datasets)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    pool = loop.run_until_complete(get_pool())
+    pool = loop.run_until_complete(get_pool()) if use_cache else None
     cached: List[Dict[str, Any]] = []
     is_realtime = 'quote' in dataset_id
     time_field = "datetime" if ("ohlcv_min" in dataset_id or dataset_id.endswith(".ohlcva_min")) else "date"
