@@ -41,8 +41,8 @@ RPC examples:
 - Playback (board): `/rpc/fetch?dataset_id=market.cn.aggregation.playback&entity_type=board&ids=半导体&freq=min5&window_n=10`
 - Industry weights: `/rpc/fetch?dataset_id=market.cn.industry_weight_distribution&index_code=000300.SH`
 - Volume percentile: `/rpc/fetch?dataset_id=market.cn.volume_percentile&entity_type=index&ids=沪深300&lookback=120`
-- Board aggregation snapshot: `/rpc/agg/board_snapshot?board_kind=industry&boards=半导体&topn=5`
-- Index aggregation snapshot: `/rpc/agg/index_snapshot?index_codes=000300.SH&topn=5`
+- Board aggregation snapshot: `/rpc/agg/board_snapshot?board_kind=industry&boards=半导体&topn=5&weight_by=amount` (weight_by: none|amount|weight)
+- Index aggregation snapshot: `/rpc/agg/index_snapshot?index_codes=000300.SH&topn=5&weight_by=weight` (当成分含权重列时可用)
 - Aggregation playback: `/rpc/agg/playback?entity_type=board&ids=半导体&freq=min5&window_n=10`
 
 SSE topics:

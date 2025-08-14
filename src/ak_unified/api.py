@@ -201,8 +201,9 @@ async def rpc_board_snapshot(
     boards: List[str] = Query(...),
     topn: int = Query(5),
     adapter_priority: Optional[List[str]] = Query(None),
+    weight_by: str = Query("none"),
 ):
-    params: Dict[str, Any] = {"board_kind": board_kind, "boards": boards, "topn": topn}
+    params: Dict[str, Any] = {"board_kind": board_kind, "boards": boards, "topn": topn, "weight_by": weight_by}
     if adapter_priority:
         params["adapter_priority"] = adapter_priority
     env = fetch_data("market.cn.board_aggregation.snapshot", params)
@@ -213,8 +214,9 @@ async def rpc_index_snapshot(
     index_codes: List[str] = Query(...),
     topn: int = Query(5),
     adapter_priority: Optional[List[str]] = Query(None),
+    weight_by: str = Query("none"),
 ):
-    params: Dict[str, Any] = {"index_codes": index_codes, "topn": topn}
+    params: Dict[str, Any] = {"index_codes": index_codes, "topn": topn, "weight_by": weight_by}
     if adapter_priority:
         params["adapter_priority"] = adapter_priority
     env = fetch_data("market.cn.index_aggregation.snapshot", params)
