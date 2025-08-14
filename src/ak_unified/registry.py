@@ -121,12 +121,25 @@ FIELD_FUND_FLOW_STOCK: FieldMap = {
 import pandas as pd  # noqa: E402
 
 
+def _region_from_params(params: Dict[str, Any]) -> str:
+    val = (params.get("region") or params.get("market") or "CN").upper()
+    aliases = {
+        "CHN": "CN",
+        "CHINA": "CN",
+        "USA": "US",
+        "UNITED STATES": "US",
+        "HKG": "HK",
+        "HONGKONG": "HK",
+    }
+    return aliases.get(val, val)
+
+
 def _macro_ppi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     series = (params.get("series") or "index").lower()
     value_col = "当月" if series in {"index", "level"} else "当月同比增长"
     out = pd.DataFrame(
         {
-            "region": "CN",
+            "region": _region_from_params(params),
             "indicator_id": "ppi" if series in {"index", "level"} else "ppi_yoy",
             "indicator_name": "PPI" if series in {"index", "level"} else "PPI同比",
             "date": df.get("月份") if "月份" in df.columns else df.iloc[:, 0],
@@ -145,7 +158,7 @@ def _macro_cpi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     value_col = "当月同比增长" if series in {"yoy", "同比", "pct"} else "当月"
     out = pd.DataFrame(
         {
-            "region": "CN",
+            "region": _region_from_params(params),
             "indicator_id": "cpi_yoy" if value_col == "当月同比增长" else "cpi",
             "indicator_name": "CPI同比" if value_col == "当月同比增长" else "CPI",
             "date": df.get("月份") if "月份" in df.columns else df.iloc[:, 0],
@@ -170,7 +183,7 @@ def _macro_pmi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
         indicator_name = "PMI制造业"
     out = pd.DataFrame(
         {
-            "region": "CN",
+            "region": _region_from_params(params),
             "indicator_id": indicator_id,
             "indicator_name": indicator_name,
             "date": df.get("月份") if "月份" in df.columns else df.iloc[:, 0],
@@ -198,7 +211,7 @@ def _macro_gdp_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     date_col = "季度" if "季度" in df.columns else df.columns[0]
     out = pd.DataFrame(
         {
-            "region": "CN",
+            "region": _region_from_params(params),
             "indicator_id": indicator_id,
             "indicator_name": indicator_name,
             "date": df[date_col],
