@@ -71,6 +71,22 @@ _DEFAULT_RULES: List[NormalizationRule] = [
         prefix="securities.board.cn.",
         keep_fields=None  # allow full
     ),
+    # Fund NAV (ETF/开放式)
+    NormalizationRule(
+        prefix="securities.fund.cn.nav",
+        keep_fields={"fund_code","fund_name","nav_date","nav","acc_nav","daily_return"}
+    ),
+    NormalizationRule(
+        prefix="securities.fund.cn.nav_open",
+        keep_fields={"fund_code","fund_name","nav_date","nav","acc_nav","daily_return"}
+    ),
+    # Equity quotes
+    NormalizationRule(
+        prefix="securities.equity.",
+        keep_fields=None,
+        rename_map=None,
+        drop_fields=None,
+    ),
 ]
 
 
