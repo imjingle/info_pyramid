@@ -4498,3 +4498,451 @@ register(DatasetSpec(dataset_id="macro.cn.fx_reserves", category="macro", domain
 register(DatasetSpec(dataset_id="macro.cn.real_estate", category="macro", domain="macro.cn", ak_functions=["macro_china_real_estate"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='real_estate', indicator_name='Real Estate Climate Index', unit='index', period='M')))
 register(DatasetSpec(dataset_id="macro.cn.social_financing.increment", category="macro", domain="macro.cn", ak_functions=["macro_china_society_financing_increment"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='social_financing_increment', indicator_name='Total Social Financing Increment', unit='CNY_billion', period='M')))
 register(DatasetSpec(dataset_id="macro.cn.social_financing.stock", category="macro", domain="macro.cn", ak_functions=["macro_china_society_financing_stock"], source="stats", param_transform=_noop_params, postprocess=lambda df, p: _macro_cn_series_post(df, p, indicator_id='social_financing_stock', indicator_name='Total Social Financing Stock', unit='CNY_billion', period='M')))
+
+# ---------- Stocks & Indices: lists, spots, constituents, weights ----------
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.list",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=["stock_info_a_code_name"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.cn.spot",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["stock_zh_index_spot_em", "stock_zh_index_spot_sina"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.cn.list",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["index_stock_info"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents.csindex",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["index_stock_cons_csindex"],
+        source="csindex",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol") or p.get("index_code"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents_weight.csindex",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["index_stock_cons_weight_csindex"],
+        source="csindex",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol") or p.get("index_code"))},
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.cni.list",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["index_all_cni"],
+        source="cni",
+        param_transform=_noop_params,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.cni.detail",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=["index_detail_cni"],
+        source="cni",
+        param_transform=lambda p: {"symbol": _strip_suffix(p.get("symbol") or p.get("index_code"))},
+    )
+)
+
+# QVIX minute
+register(
+    DatasetSpec(
+        dataset_id="market.volatility.cn.qvix_min",
+        category="market",
+        domain="market.cn",
+        ak_functions=[
+            "index_option_50etf_min_qvix",
+            "index_option_300etf_min_qvix",
+            "index_option_100etf_min_qvix",
+            "index_option_500etf_min_qvix",
+            "index_option_1000index_min_qvix",
+            "index_option_300index_min_qvix",
+            "index_option_50index_min_qvix",
+            "index_option_cyb_min_qvix",
+            "index_option_kcb_min_qvix",
+        ],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+# ---------- Boards: concept (EM & THS) ----------
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.name_em",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_name_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.spot_em",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_spot_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.cons_em",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_cons_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("board_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.hist_em",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start_date": _yyyymmdd(p.get("start")), "end_date": _yyyymmdd(p.get("end"))},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.name_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_name_ths"],
+        source="ths",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.index_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_index_ths"],
+        source="ths",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.info_ths",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=["stock_board_concept_info_ths"],
+        source="ths",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+    )
+)
+
+# ---------- Market sentiment ----------
+register(
+    DatasetSpec(
+        dataset_id="market.cn.news_sentiment.scope",
+        category="market",
+        domain="market.cn",
+        ak_functions=["index_news_sentiment_scope"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+# ---------- Funds: lists, info, spots, history, dividends, fees, reports ----------
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.list",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_name_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.basic_info",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_individual_basic_info_xq", "fund_info_index_em", "fund_purchase_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.spot.etf",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_etf_spot_em", "fund_etf_spot_ths", "fund_etf_category_sina"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.spot.lof",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_lof_spot_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.spot.money",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_money_fund_daily_em", "fund_financial_fund_daily_em", "fund_graded_fund_daily_em", "fund_etf_fund_daily_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.hist.etf",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_etf_hist_em", "fund_etf_hist_sina"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.hist.lof",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_lof_hist_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.min.etf",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_etf_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code"), "start_time": p.get("start"), "end_time": p.get("end")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.min.lof",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_lof_hist_min_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code"), "start_time": p.get("start"), "end_time": p.get("end")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.dividend",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_etf_dividend_sina", "fund_fh_em", "fund_cf_em", "fund_fh_rank_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.performance",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_individual_achievement_xq"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.estimate",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_value_estimation_em"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.indicators",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_individual_analysis_xq", "fund_individual_profit_probability_xq"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.fee",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_fee_em", "fund_individual_detail_info_xq"],
+        source="em",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.reports",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_report_stock_cninfo", "fund_report_industry_allocation_cninfo", "fund_report_asset_allocation_cninfo"],
+        source="cninfo",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("fund_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.positions",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_stock_position_lg", "fund_balance_position_lg", "fund_linghuo_position_lg"],
+        source="longbridge",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.fund.cn.announcement.personnel",
+        category="securities",
+        domain="securities.fund.cn",
+        ak_functions=["fund_announcement_personnel_em"],
+        source="em",
+        param_transform=_noop_params,
+    )
+)
+
+# ---------- Bonds: lists, info, indices, issuance, spot, hist, yield curves ----------
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.list",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_info_cm"],
+        source="chinabond",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.info",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_info_detail_cm"],
+        source="chinabond",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("bond_code")},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.index.new_composite",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_new_composite_index_cbond"],
+        source="cbond",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.index.composite",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_composite_index_cbond"],
+        source="cbond",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.issuance",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_debt_nafmii", "bond_treasure_issue_cninfo", "bond_local_government_issue_cninfo", "bond_corporate_issue_cninfo", "bond_cov_issue_cninfo", "bond_cov_stock_issue_cninfo"],
+        source="cninfo",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.spot",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_spot_quote", "bond_spot_deal", "bond_zh_hs_spot"],
+        source="sse",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.hist",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_zh_hs_daily"],
+        source="sse",
+        param_transform=lambda p: {"symbol": p.get("symbol") or p.get("bond_code"), "start_date": _yyyymmdd(p.get("start")), "end_date": _yyyymmdd(p.get("end"))},
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.cov",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_zh_hs_cov_spot", "bond_zh_hs_cov_daily", "bond_zh_hs_cov_min", "bond_zh_hs_cov_pre_min"],
+        source="sse",
+        param_transform=_noop_params,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.bond.cn.yield_curves",
+        category="securities",
+        domain="securities.bond.cn",
+        ak_functions=["bond_china_yield", "bond_china_close_return", "bond_zh_us_rate"],
+        source="chinabond",
+        param_transform=_noop_params,
+    )
+)
