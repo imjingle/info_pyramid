@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, List
 from fastapi import FastAPI, Query, Body
 from sse_starlette.sse import EventSourceResponse
 from starlette.responses import JSONResponse
+from .logging import logger
 
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
 from .dispatcher import get_ohlcva
@@ -213,6 +214,7 @@ async def rpc_board_snapshot(
     if adapter_priority:
         params["adapter_priority"] = adapter_priority
     env = fetch_data("market.cn.board_aggregation.snapshot", params)
+    logger.info("rpc_board_snapshot served")
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 @app.get("/rpc/agg/index_snapshot")

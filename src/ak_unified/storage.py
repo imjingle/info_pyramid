@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import asyncpg  # type: ignore
+from .logging import logger
 
 _POOL: Optional[asyncpg.Pool] = None
 
@@ -57,12 +58,14 @@ async def get_pool() -> Optional[asyncpg.Pool]:
     if not dsn:
         return None
     if _POOL is None:
+        logger.info("creating postgres pool")
         _POOL = await asyncpg.create_pool(dsn)
         await ensure_schema(_POOL)
     return _POOL
 
 
 async def ensure_schema(pool: asyncpg.Pool) -> None:
+    logger.info("ensuring postgres schema")
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -122,6 +125,7 @@ def _row_key(dataset_id: str, rec: Dict[str, Any]) -> str:
 async def upsert_records(pool: asyncpg.Pool, dataset_id: str, records: Iterable[Dict[str, Any]]) -> None:
     if not records:
         return
+    logger.bind(dataset=dataset_id, n=len(list(records))).info("upserting rows")
     rows = []
     for r in records:
         rk = _row_key(dataset_id, r)
@@ -149,6 +153,7 @@ async def fetch_records(
     end: Optional[str] = None,
     time_field: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    logger.bind(dataset=dataset_id).info("fetching rows from cache")
     where = ["dataset_id = $1"]
     args: List[Any] = [dataset_id]
     i = 2
@@ -204,6 +209,7 @@ async def purge_records(
     end: Optional[str] = None,
     time_field: Optional[str] = None,
 ) -> int:
+    logger.info("purging cache records")
     where = []
     args: List[Any] = []
     i = 1
@@ -263,8 +269,11 @@ async def upsert_blob_snapshot(
     ak_function: Optional[str] = None,
     adapter: Optional[str] = None,
     timezone: Optional[str] = None,
-    raw_obj: Any,
-) -> bool:
+    raw_obj: Any = None,
+    encoding: str = 'raw',
+) -> None:
+    logger.bind(dataset=dataset_id).info("upserting blob snapshot")
+    import pickle, zlib, base64
     # optional allowlist by prefix
     allow_raw = os.environ.get('AKU_BLOB_ALLOW_PREFIXES')
     if allow_raw:
@@ -301,6 +310,7 @@ async def upsert_blob_snapshot(
 
 
 async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Tuple[Any, Dict[str, Any]]]:
+    logger.bind(dataset=dataset_id).info("fetching blob snapshot")
     key = _request_key(dataset_id, params)
     async with pool.acquire() as conn:
         row = await conn.fetchrow("select raw_data, ak_function, adapter, timezone, params, encoding from aku_cache_blob where key = $1", key)

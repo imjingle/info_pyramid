@@ -11,6 +11,7 @@ from .adapters.akshare_adapter import call_akshare
 from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert, upsert_blob_snapshot as _db_upsert_blob, fetch_blob_snapshot as _db_fetch_blob
 import asyncio
 from .normalization import apply_and_validate
+from .logging import logger
 
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
@@ -50,6 +51,7 @@ def _envelope(
 
 
 def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True, use_blob: bool = True, store_blob: bool = True) -> DataEnvelope:
+    logger.bind(dataset=dataset_id).info("fetch_data called")
     spec = _resolve_spec(dataset_id)
     params = params or {}
 
@@ -79,6 +81,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         try:
             res = loop.run_until_complete(_db_fetch_blob(pool, dataset_id, params))
             if res is not None:
+                logger.bind(dataset=dataset_id).info("blob cache hit")
                 raw_records, meta = res
                 records = apply_and_validate(dataset_id, raw_records)
                 env = _envelope(spec, params, records)
@@ -86,9 +89,12 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
                 env.data_source = meta.get("adapter") or 'postgresql-blob'
                 return env
         except Exception:
+            logger.bind(dataset=dataset_id).warning("blob cache fetch failed")
             pass
     if pool is not None and not is_realtime:
         cached = loop.run_until_complete(_db_fetch(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field))
+        if cached:
+            logger.bind(dataset=dataset_id).info("row cache hit",)
         # If fully covered by cache for date-based datasets, return immediately from cache
         if time_field == 'date' and start and end and cached:
             try:
@@ -98,11 +104,13 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
                     have = _pd.to_datetime(cdf['date']).dt.strftime('%Y-%m-%d')
                     missing = sorted(list(set(want) - set(have)))
                     if not missing:
+                        logger.bind(dataset=dataset_id).info("row cache fully covers request")
                         env = _envelope(spec, params, cached)
                         env.ak_function = 'cache'
                         env.data_source = 'postgresql'
                         return env
             except Exception:
+                logger.bind(dataset=dataset_id).warning("row cache coverage check failed")
                 pass
 
     ak_params = _apply_param_transform(spec, params)
@@ -168,6 +176,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
                 fn_used, df = call_ibkr(dataset_id, part_ak_params)
             else:
                 raise RuntimeError(f"Unknown adapter: {spec.adapter}")
+            logger.bind(dataset=dataset_id, adapter=spec.adapter, fn=fn_used).info("fetched upstream span")
             df = _postprocess(spec, df, part_params)
             part_records = df.to_dict(orient="records")
             new_records.extend(part_records)
@@ -309,7 +318,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         fn_used, df = call_ibkr(dataset_id, ak_params)
     else:
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
-
+    logger.bind(dataset=dataset_id, adapter=spec.adapter, fn=fn_used).info("fetched upstream")
     df = _postprocess(spec, df, params)
     raw_records = df.to_dict(orient="records")
     records = apply_and_validate(dataset_id, raw_records)
@@ -323,7 +332,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             if store_blob:
                 try:
                     loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, ak_function=fn_used, adapter=spec.adapter, timezone=DEFAULT_TIMEZONE, raw_obj=raw_records))
+                    logger.bind(dataset=dataset_id).info("blob stored")
                 except Exception:
+                    logger.bind(dataset=dataset_id).warning("blob store failed")
                     pass
             if cached:
                 # return union (cached + fresh unique)
