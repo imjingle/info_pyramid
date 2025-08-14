@@ -26,6 +26,7 @@ class DatasetSpec:
     adjust_support: Optional[List[str]] = None
     postprocess: Optional[PostProcess] = None
     compute: Optional[ComputeFunc] = None
+    adapter: str = "akshare"
 
 
 REGISTRY: Dict[str, DatasetSpec] = {}
@@ -2606,3 +2607,28 @@ register(
 
 # Governance datasets (CN already added): stock_hold_management_person_em etc.
 # TODO: Add HK/US governance if AkShare exposes endpoints in future.
+
+# Complementary sources for CN OHLCV daily
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.baostock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="baostock",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.mootdx",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="mootdx",
+    )
+)

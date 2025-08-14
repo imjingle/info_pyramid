@@ -59,13 +59,25 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         return env
 
     ak_params = _apply_param_transform(spec, params)
-    fn_used, df = call_akshare(
-        spec.ak_functions,
-        ak_params,
-        field_mapping=spec.field_mapping,
-        allow_fallback=allow_fallback,
-        function_name=ak_function,
-    )
+
+    # dispatch adapter
+    if spec.adapter == "akshare":
+        fn_used, df = call_akshare(
+            spec.ak_functions,
+            ak_params,
+            field_mapping=spec.field_mapping,
+            allow_fallback=allow_fallback,
+            function_name=ak_function,
+        )
+    elif spec.adapter == "baostock":
+        from .adapters.baostock_adapter import call_baostock
+        fn_used, df = call_baostock(dataset_id, ak_params)
+    elif spec.adapter == "mootdx":
+        from .adapters.mootdx_adapter import call_mootdx
+        fn_used, df = call_mootdx(dataset_id, ak_params)
+    else:
+        raise RuntimeError(f"Unknown adapter: {spec.adapter}")
+
     df = _postprocess(spec, df, params)
     records = df.to_dict(orient="records")
     env = _envelope(spec, params, records)
