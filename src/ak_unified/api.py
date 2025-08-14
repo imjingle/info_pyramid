@@ -49,6 +49,7 @@ async def rpc_fetch(
     ak_function: Optional[str] = Query(None),
     allow_fallback: bool = Query(False),
     adapter: Optional[str] = Query(None),
+    use_cache: bool = Query(True),
     # common params (optional)
     symbol: Optional[str] = None,
     start: Optional[str] = None,
@@ -97,7 +98,7 @@ async def rpc_fetch(
         if v is not None:
             params[k] = v
     dataset_id = _apply_adapter_variant(dataset_id, adapter)
-    env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback)
+    env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback, use_cache=use_cache)
     return env.model_dump()
 
 
