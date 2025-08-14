@@ -2742,3 +2742,27 @@ register(
         adapter="mootdx",
     )
 )
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_min.baostock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="baostock",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": (p.get("freq") or "5").replace("min", "")},
+        adapter="baostock",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_min.mootdx",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq")},
+        adapter="mootdx",
+    )
+)

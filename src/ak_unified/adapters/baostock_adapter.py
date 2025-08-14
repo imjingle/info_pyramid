@@ -57,6 +57,21 @@ def _handle_call(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataF
             df.insert(0, 'symbol', symbol)
             return 'baostock.query_history_k_data_plus', df
 
+        if dataset_id.endswith('ohlcv_min'):
+            symbol = params.get('symbol')
+            start = (params.get('start') or '19700101').replace('-', '')
+            end = (params.get('end') or '22220101').replace('-', '')
+            freq = str(params.get('freq') or '5')  # support 5/15/30/60
+            if freq not in {'5','15','30','60'}:
+                freq = '5'
+            rs = bs.query_history_k_data_plus(symbol, "date,open,high,low,close,volume,amount", start_date=start, end_date=end, frequency=freq, adjustflag="3")
+            rows, fields = _iter_resultset(rs)
+            df = pd.DataFrame(rows, columns=fields)
+            for c in ["open","high","low","close","volume","amount"]:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
+            df.insert(0, 'symbol', symbol)
+            return f'baostock.query_history_k_data_plus_{freq}', df
+
         if dataset_id == 'market.calendar.baostock':
             start = (params.get('start') or '1990-12-19')
             end = (params.get('end') or '2099-12-31')
