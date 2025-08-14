@@ -4,22 +4,23 @@ import os
 import sys
 from typing import Optional
 from loguru import logger
+from .config import settings
 
 
 def _default_level() -> str:
-    return os.getenv("AKU_LOG_LEVEL", "INFO")
+    return settings.LOG_LEVEL
 
 
 def _default_format() -> str:
     # structured-ish line; users can set AKU_LOG_JSON=1 for JSON sink
-    return os.getenv("AKU_LOG_FORMAT", "{time} | {level} | {name}:{function}:{line} - {message}")
+    return settings.LOG_FORMAT
 
 
 def configure_logger(json_output: Optional[bool] = None) -> None:
     logger.remove()
     level = _default_level()
     fmt = _default_format()
-    json_enabled = json_output if json_output is not None else (os.getenv("AKU_LOG_JSON", "0") == "1")
+    json_enabled = json_output if json_output is not None else settings.LOG_JSON
     if json_enabled:
         def serialize(record):
             from json import dumps

@@ -4,6 +4,7 @@ import os
 import time
 from typing import Any, Dict, Tuple, Optional, List
 import pandas as pd
+from ..config import settings
 
 
 class IBKRAdapterError(RuntimeError):
@@ -20,9 +21,9 @@ def _import_ib() -> Any:
 
 def _ib_connect() -> Any:
     IB, _ = _import_ib()
-    host = os.getenv('AKU_IB_HOST', '127.0.0.1')
-    port = int(os.getenv('AKU_IB_PORT', '7497'))
-    client_id = int(os.getenv('AKU_IB_CLIENT_ID', '1'))
+    host = settings.IB_HOST
+    port = settings.IB_PORT
+    client_id = settings.IB_CLIENT_ID
     ib = IB()
     if not ib.connect(host, port, clientId=client_id, timeout=10):
         raise IBKRAdapterError(f"Could not connect to IBKR at {host}:{port}")

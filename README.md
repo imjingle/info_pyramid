@@ -7,6 +7,17 @@ Unified interface and schemas for AkShare across macro, market, and securities c
 uv venv
 uv sync
 uv run python -c "import ak_unified as aku; print(aku.__version__)"
+# optional: create .env for configuration overrides
+cat > .env << 'EOF'
+AKU_DB_DSN=postgres://user:pass@localhost:5432/aku
+AKU_LOG_LEVEL=INFO
+AKU_LOG_JSON=0
+AKU_ALPHAVANTAGE_API_KEY=your_key
+AKU_IB_HOST=127.0.0.1
+AKU_IB_PORT=7497
+AKU_IB_CLIENT_ID=1
+AKU_REGION_MAPPING={"北京":["600000.SH","600519.SH"]}
+EOF
 ```
 
 ## Structure
@@ -130,3 +141,14 @@ AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分�
 ## Normalization
 - 系统内置按数据集前缀的标准化规则：时间字段格式化、symbol 大写、常用数值字段转 float 等；并在响应和存储前统一应用
 - 可通过 `AKU_NORMALIZATION_RULES`
+
+## Notes
+- Field names are normalized to snake_case and English.
+- Timezone defaults to Asia/Shanghai unless otherwise specified.
+- Some upstream endpoints may change; switch adapters or specify `ak_function` as needed.
+- Configuration is managed via environment variables (dotenv supported). Key vars:
+  - Logging: `AKU_LOG_LEVEL`, `AKU_LOG_JSON`, `AKU_LOG_FORMAT`
+  - DB/Cache: `AKU_DB_DSN`, `AKU_CACHE_TTL_SECONDS`, `AKU_CACHE_TTL_PER_DATASET`
+  - Blob cache: `AKU_BLOB_ALLOW_PREFIXES`, `AKU_BLOB_MAX_BYTES`, `AKU_BLOB_COMPRESS`
+  - Vendors: `AKU_ALPHAVANTAGE_API_KEY`, `AKU_IB_HOST`, `AKU_IB_PORT`, `AKU_IB_CLIENT_ID`
+  - Region mapping: `AKU_REGION_MAPPING` (JSON)

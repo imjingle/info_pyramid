@@ -8,16 +8,17 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import asyncpg  # type: ignore
 from .logging import logger
+from .config import settings
 
 _POOL: Optional[asyncpg.Pool] = None
 
 
 def _dsn() -> Optional[str]:
-    return os.environ.get("AKU_DB_DSN")
+    return settings.DB_DSN
 
 
 def _parse_ttl_map() -> Dict[str, int]:
-    raw = os.environ.get("AKU_CACHE_TTL_PER_DATASET")
+    raw = settings.CACHE_TTL_PER_DATASET
     if not raw:
         return {}
     try:
@@ -45,11 +46,7 @@ def _ttl_seconds(dataset_id: Optional[str] = None) -> Optional[int]:
                 best_key = k
         if best_key is not None:
             return ttl_map.get(best_key)
-    v = os.environ.get("AKU_CACHE_TTL_SECONDS")
-    try:
-        return int(v) if v else None
-    except Exception:
-        return None
+    return settings.CACHE_TTL_SECONDS
 
 
 async def get_pool() -> Optional[asyncpg.Pool]:
@@ -275,7 +272,7 @@ async def upsert_blob_snapshot(
     logger.bind(dataset=dataset_id).info("upserting blob snapshot")
     import pickle, zlib, base64
     # optional allowlist by prefix
-    allow_raw = os.environ.get('AKU_BLOB_ALLOW_PREFIXES')
+    allow_raw = settings.BLOB_ALLOW_PREFIXES
     if allow_raw:
         try:
             prefixes = json.loads(allow_raw)
@@ -287,14 +284,11 @@ async def upsert_blob_snapshot(
     key = _request_key(dataset_id, params)
     data = pickle.dumps(raw_obj)
     encoding = 'raw'
-    if os.environ.get('AKU_BLOB_COMPRESS', '0') in ('1', 'true', 'True'):
+    if settings.BLOB_COMPRESS:
         data = zlib.compress(data)
         encoding = 'zlib'
     # optional size guard
-    try:
-        max_bytes = int(os.environ.get('AKU_BLOB_MAX_BYTES', '0'))
-    except Exception:
-        max_bytes = 0
+    max_bytes = int(settings.BLOB_MAX_BYTES or 0)
     if max_bytes > 0 and len(data) > max_bytes:
         return False
     async with pool.acquire() as conn:

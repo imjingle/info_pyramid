@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from .config import load_account_key_map  # noqa: E402
+from .config import settings  # noqa: E402
 
 
 ParamTransform = Callable[[Dict[str, Any]], Dict[str, Any]]
@@ -1893,7 +1893,7 @@ ACCOUNT_KEY_MAP: Dict[str, str] = {
     "现金及现金等价物净增加额": "cash_net_change",
 }
 
-ACCOUNT_KEY_MAP = load_account_key_map(ACCOUNT_KEY_MAP)
+# ACCOUNT_KEY_MAP externalization handled via config if needed
 
 
 def _map_account_key(key: str) -> str:

@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple
 from urllib import request, parse
 import json
 import pandas as pd
+from ..config import settings
 
 
 class AVAdapterError(RuntimeError):
@@ -15,7 +16,7 @@ _API = "https://www.alphavantage.co/query"
 
 
 def _api_key() -> str:
-    key = os.getenv("AKU_ALPHAVANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY")
+    key = settings.AV_API_KEY
     if not key:
         raise AVAdapterError("Alpha Vantage API key missing. Set AKU_ALPHAVANTAGE_API_KEY or ALPHAVANTAGE_API_KEY")
     return key
