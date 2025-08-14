@@ -50,7 +50,20 @@ SSE topics:
 ## Postgres caching (asyncpg)
 - 设置环境变量 `AKU_DB_DSN` 启用：例如 `export AKU_DB_DSN=postgres://user:pass@host:5432/dbname`
 - 首次使用会自动初始化表 `aku_cache` 与必要索引
+- 可选 TTL：全局 `AKU_CACHE_TTL_SECONDS`，或按数据集前缀 `AKU_CACHE_TTL_PER_DATASET`（JSON）
 - 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
+
+Export/Import cache:
+```bash
+# export all datasets to ndjson
+uv run python -m ak_unified.tools.cache_tools export -o cache.ndjson
+# export specific prefix
+uv run python -m ak_unified.tools.cache_tools export -o idx.ndjson --dataset-prefix market.index
+# import from file
+uv run python -m ak_unified.tools.cache_tools import -i cache.ndjson
+# import with prefix filter
+uv run python -m ak_unified.tools.cache_tools import -i idx.ndjson --dataset-prefix market.index
+```
 
 ## Testing
 Run tests:
