@@ -119,6 +119,7 @@ FIELD_FUND_FLOW_STOCK: FieldMap = {
 # ---------- Macro postprocessors ----------
 
 import pandas as pd  # noqa: E402
+import pandas as __pd
 
 
 def _region_from_params(params: Dict[str, Any]) -> str:
@@ -4946,3 +4947,85 @@ register(
         param_transform=_noop_params,
     )
 )
+
+def _post_stock_list_cn(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    cols = df.columns.tolist()
+    rename_map: Dict[str, str] = {}
+    for a, b in [
+        ("code", "symbol"), ("证券代码", "symbol"), ("股票代码", "symbol"),
+        ("name", "name"), ("证券简称", "name"), ("股票简称", "name"),
+        ("上市地点", "exchange"), ("交易所", "exchange"),
+    ]:
+        if a in cols:
+            rename_map[a] = b
+    out = df.rename(columns=rename_map).copy()
+    if "symbol" in out.columns:
+        out['symbol'] = out['symbol'].astype(str).str.strip()
+    return out
+
+def _post_index_list_cn(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    rename_map: Dict[str, str] = {}
+    for a, b in [
+        ("指数代码", "index_code"), ("代码", "index_code"), ("指数简称", "index_name"), ("名称", "index_name"),
+    ]:
+        if a in df.columns:
+            rename_map[a] = b
+    out = df.rename(columns=rename_map).copy()
+    if 'index_code' in out.columns:
+        out['index_code'] = out['index_code'].astype(str).str.strip()
+    return out
+
+def _post_index_cons_csindex(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    rename_map: Dict[str, str] = {}
+    for a, b in [
+        ("指数代码", "index_code"), ("指数名称", "index_name"),
+        ("成分券代码", "symbol"), ("证券代码", "symbol"), ("证券简称", "name"),
+        ("权重(%)", "weight_pct"), ("权重", "weight_pct"),
+    ]:
+        if a in df.columns:
+            rename_map[a] = b
+    out = df.rename(columns=rename_map).copy()
+    if 'weight_pct' in out.columns:
+        out['weight_pct'] = __pd.to_numeric(out['weight_pct'], errors='coerce')
+    if 'symbol' in out.columns:
+        out['symbol'] = out['symbol'].astype(str).str.strip()
+    return out
+
+def _post_cni_detail(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    return _post_index_cons_csindex(df, params)
+
+def _post_concept_cons_em(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    rename_map: Dict[str, str] = {}
+    for a, b in [
+        ("代码", "symbol"), ("名称", "name"), ("板块代码", "board_code"), ("板块名称", "board_name"),
+    ]:
+        if a in df.columns:
+            rename_map[a] = b
+    out = df.rename(columns=rename_map)
+    if 'symbol' in out.columns:
+        out['symbol'] = out['symbol'].astype(str)
+    return out
+
+def _post_news_sentiment(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    rename_map: Dict[str, str] = {}
+    for a, b in [
+        ("日期", "date"), ("情绪值", "sentiment"), ("新闻数量", "news_count"),
+    ]:
+        if a in df.columns:
+            rename_map[a] = b
+    out = df.rename(columns=rename_map)
+    if 'sentiment' in out.columns:
+        out['sentiment'] = __pd.to_numeric(out['sentiment'], errors='coerce')
+    if 'news_count' in out.columns:
+        out['news_count'] = __pd.to_numeric(out['news_count'], errors='coerce')
+    return out
