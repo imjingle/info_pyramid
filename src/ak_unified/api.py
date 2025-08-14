@@ -330,6 +330,82 @@ async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Quer
         "raw": raw_obj,
     }
 
+@app.post("/rpc/replay_diff")
+async def rpc_replay_diff(
+    payload: Dict[str, Any] = Body(..., embed=False)
+) -> Dict[str, Any]:
+    dataset_id = payload.get('dataset_id')
+    params = payload.get('params') or {}
+    epsilon = float(payload.get('epsilon') or 1e-8)
+    if not isinstance(dataset_id, str) or not isinstance(params, dict):
+        return {"ok": False, "error": "invalid payload"}
+    pool = await _get_pool()
+    if pool is None:
+        return {"ok": False, "error": "cache disabled"}
+    res = await _blob_fetch(pool, dataset_id, params)
+    if res is None:
+        return {"ok": False, "error": "blob not found"}
+    raw_obj, meta = res
+    # normalize blob
+    blob_records = apply_and_validate(dataset_id, raw_obj if isinstance(raw_obj, list) else [])
+    # live fetch (bypass cache/blob to compare against upstream)
+    env = fetch_data(dataset_id, params, use_cache=False, use_blob=False)
+    live_records = env.data
+
+    def key_of(r: Dict[str, Any]):
+        return (r.get('symbol') or r.get('index_symbol') or r.get('board_code'), r.get('date') or r.get('datetime'))
+
+    blob_map = {key_of(r): r for r in blob_records}
+    live_map = {key_of(r): r for r in live_records}
+
+    keys_blob = set(blob_map.keys())
+    keys_live = set(live_map.keys())
+
+    only_in_blob = sorted([k for k in keys_blob - keys_live])
+    only_in_live = sorted([k for k in keys_live - keys_blob])
+
+    diffs = []
+    for k in sorted(keys_blob & keys_live):
+        rb = blob_map[k]
+        rl = live_map[k]
+        fields = set(rb.keys()) | set(rl.keys())
+        field_diffs = {}
+        for f in fields:
+            vb = rb.get(f)
+            vl = rl.get(f)
+            if isinstance(vb, (int, float)) or isinstance(vl, (int, float)):
+                try:
+                    fb = float(vb) if vb is not None else None
+                    fl = float(vl) if vl is not None else None
+                    if (fb is None) != (fl is None):
+                        field_diffs[f] = [vb, vl]
+                    elif fb is not None and fl is not None and abs(fb - fl) > epsilon:
+                        field_diffs[f] = [vb, vl]
+                except Exception:
+                    if vb != vl:
+                        field_diffs[f] = [vb, vl]
+            else:
+                if vb != vl:
+                    field_diffs[f] = [vb, vl]
+        if field_diffs:
+            diffs.append({"key": k, "fields": field_diffs})
+
+    return {
+        "ok": True,
+        "dataset": dataset_id,
+        "params": params,
+        "counts": {
+            "blob": len(blob_records),
+            "live": len(live_records),
+            "only_in_blob": len(only_in_blob),
+            "only_in_live": len(only_in_live),
+            "diff_keys": len(diffs),
+        },
+        "only_in_blob": only_in_blob,
+        "only_in_live": only_in_live,
+        "diffs": diffs,
+    }
+
 
 async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float, symbols: Optional[List[str]] = None):
     dataset_id = _apply_adapter_variant(dataset_id, adapter)
