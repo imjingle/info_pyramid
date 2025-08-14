@@ -272,10 +272,11 @@ async def admin_cache_blob_get(dataset_id: str = Query(...), params: Dict[str, A
     pool = await _get_pool()
     if pool is None:
         return {"enabled": False}
-    raw_obj = await _blob_fetch(pool, dataset_id, params)
-    if raw_obj is None:
+    res = await _blob_fetch(pool, dataset_id, params)
+    if res is None:
         return {"enabled": True, "found": False}
-    return {"enabled": True, "found": True, "raw": raw_obj}
+    raw_obj, meta = res
+    return {"enabled": True, "found": True, "raw": raw_obj, "meta": meta}
 
 @app.post("/admin/cache/blob/purge")
 async def admin_cache_blob_purge(dataset_id: Optional[str] = Query(None), params: Optional[Dict[str, Any]] = Query(None)) -> Dict[str, Any]:
@@ -284,6 +285,26 @@ async def admin_cache_blob_purge(dataset_id: Optional[str] = Query(None), params
         return {"enabled": False, "deleted": 0}
     deleted = await _blob_purge(pool, dataset_id, params)
     return {"enabled": True, "deleted": int(deleted)}
+
+@app.get("/rpc/replay")
+async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...)) -> Dict[str, Any]:
+    pool = await _get_pool()
+    if pool is None:
+        return {"ok": False, "error": "cache disabled"}
+    res = await _blob_fetch(pool, dataset_id, params)
+    if res is None:
+        return {"ok": False, "error": "not found"}
+    raw_obj, meta = res
+    # Build an envelope-like response for convenience
+    return {
+        "ok": True,
+        "dataset": dataset_id,
+        "params": params,
+        "ak_function": meta.get("ak_function"),
+        "adapter": meta.get("adapter"),
+        "timezone": meta.get("timezone"),
+        "raw": raw_obj,
+    }
 
 
 async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float, symbols: Optional[List[str]] = None):

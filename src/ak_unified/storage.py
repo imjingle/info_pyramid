@@ -274,14 +274,16 @@ async def upsert_blob_snapshot(
         )
 
 
-async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Any]:
+async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Tuple[Any, Dict[str, Any]]]:
     key = _request_key(dataset_id, params)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("select raw_data from aku_cache_blob where key = $1", key)
+        row = await conn.fetchrow("select raw_data, ak_function, adapter, timezone, params from aku_cache_blob where key = $1", key)
         if not row:
             return None
         try:
-            return pickle.loads(bytes(row[0]))
+            raw = pickle.loads(bytes(row[0]))
+            meta = {"ak_function": row[1], "adapter": row[2], "timezone": row[3], "params": json.loads(row[4]) if row[4] else {}}
+            return raw, meta
         except Exception:
             return None
 
