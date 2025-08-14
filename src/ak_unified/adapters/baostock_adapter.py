@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 from typing import Any, Dict, Tuple
 
@@ -11,6 +12,8 @@ class BaoAdapterError(RuntimeError):
 
 
 _lock = threading.Lock()
+_queue: asyncio.Queue | None = None
+_worker_started = False
 
 
 def _import_baostock():
@@ -40,7 +43,7 @@ def _iter_resultset(rs):
     return rows, rs.fields
 
 
-def call_baostock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
+def _handle_call(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     def handle(bs):
         if dataset_id.endswith('ohlcv_daily'):
             symbol = params.get('symbol')
@@ -103,10 +106,44 @@ def call_baostock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.Data
                 df = df.rename(columns={"code": "symbol", "adjustfactor": "adjust_factor", "tradeDate": "date"})
                 df["adjust_factor"] = pd.to_numeric(df["adjust_factor"], errors='coerce')
                 return 'baostock.query_adjust_factor', df
-            # fallback: not supported
             return 'baostock.unsupported', pd.DataFrame([])
 
         return 'baostock.unsupported', pd.DataFrame([])
 
-    tag, df = _with_session(handle)
-    return tag, df
+    return _with_session(lambda bs: handle(bs))
+
+
+async def _ensure_worker():
+    global _queue, _worker_started
+    if _queue is None:
+        _queue = asyncio.Queue()
+    if not _worker_started:
+        _worker_started = True
+        asyncio.create_task(_worker())
+
+
+async def _worker():
+    assert _queue is not None
+    while True:
+        dataset_id, params, fut = await _queue.get()
+        try:
+            res = _handle_call(dataset_id, params)
+            fut.set_result(res)
+        except Exception as exc:  # noqa: BLE001
+            fut.set_exception(exc)
+        finally:
+            _queue.task_done()
+
+
+async def acall_baostock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
+    await _ensure_worker()
+    assert _queue is not None
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+    await _queue.put((dataset_id, params, fut))
+    return await fut
+
+
+def call_baostock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
+    # Synchronous wrapper (non-async contexts)
+    return _handle_call(dataset_id, params)

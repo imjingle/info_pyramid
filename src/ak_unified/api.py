@@ -84,6 +84,42 @@ async def rpc_fetch(
     return env.model_dump()
 
 
+@app.get("/rpc/fetch_async")
+async def rpc_fetch_async(
+    dataset_id: str = Query(...),
+    ak_function: Optional[str] = Query(None),
+    allow_fallback: bool = Query(False),
+    symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> Dict[str, Any]:
+    # limited async path for baostock datasets
+    params: Dict[str, Any] = {k: v for k, v in {"symbol": symbol, "start": start, "end": end}.items() if v is not None}
+    spec = REGISTRY.get(dataset_id)
+    if spec and getattr(spec, 'adapter', 'akshare') == 'baostock':
+        from .adapters.baostock_adapter import acall_baostock
+        tag, df = await acall_baostock(dataset_id, params)
+        env = {
+            "schema_version": "1.0.0",
+            "provider": "baostock",
+            "category": spec.category,
+            "domain": spec.domain,
+            "dataset": dataset_id,
+            "params": params,
+            "timezone": "Asia/Shanghai",
+            "currency": None,
+            "attribution": "Data via BaoStock",
+            "data": df.to_dict(orient="records"),
+            "pagination": {"offset": 0, "limit": len(df), "total": len(df)},
+            "ak_function": tag,
+            "data_source": "baostock",
+        }
+        return env
+    # fallback to sync
+    env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback)
+    return env.model_dump()
+
+
 @app.get("/rpc/ohlcv")
 async def rpc_ohlcv(
     symbol: str,
