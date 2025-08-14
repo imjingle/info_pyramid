@@ -3516,3 +3516,93 @@ register(
         platform="cross",
     )
 )
+
+def _compute_industry_weight_distribution(params: Dict[str, Any]) -> pd.DataFrame:
+    # Compute industry weight distribution for an index using constituents with weight if available
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    index_code = params.get('index_code') or params.get('symbol') or '000300.SH'
+    # Try multiple sources for constituents with weight
+    df = _pd.DataFrame([])
+    for ds in ("market.index.constituents", "market.index.constituents.qmt"):
+        try:
+            env = _fetch(ds, {"index_code": index_code})
+            df = _pd.DataFrame(env.data)
+            if not df.empty:
+                break
+        except Exception:
+            continue
+    if df.empty:
+        return _pd.DataFrame([])
+    # If weight column missing, approximate equal weight
+    if 'weight' not in df.columns:
+        df['weight'] = 1.0
+    # Map symbols to industry via any available mapping; use cninfo category if available
+    try:
+        ind_env = _fetch("securities.industry.cn.category_cninfo", {"symbol": "巨潮行业分类标准"})
+        ind_map = _pd.DataFrame(ind_env.data)
+    except Exception:
+        ind_map = _pd.DataFrame([])
+    if not ind_map.empty and 'symbol' in ind_map.columns and 'industry' in ind_map.columns:
+        merged = df.merge(ind_map[['symbol','industry']], on='symbol', how='left')
+    else:
+        merged = df.copy()
+        merged['industry'] = None
+    out = merged.groupby('industry', dropna=False)['weight'].sum().reset_index().rename(columns={'weight':'industry_weight'})
+    out['index_code'] = index_code
+    return out
+
+
+def _compute_volume_percentile(params: Dict[str, Any]) -> pd.DataFrame:
+    # Compute volume percentile for entities over a lookback window
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+    entity_type = (params.get('entity_type') or 'index').lower()
+    ids: List[str] = params.get('ids') or []
+    lookback = int(params.get('lookback') or 120)
+    rows: List[Dict[str, Any]] = []
+    for eid in ids:
+        try:
+            if entity_type == 'index':
+                code = _CN_INDEX_ALIAS.get(eid, eid)
+                env = _fetch("market.index.ohlcva", {"symbol": code})
+            else:
+                # default to equity daily
+                env = _fetch("securities.equity.cn.ohlcva_daily", {"symbol": eid})
+            df = _pd.DataFrame(env.data)
+            if df.empty:
+                rows.append({"entity_type": entity_type, "id": eid, "volume_percentile": None})
+                continue
+            v = _pd.to_numeric(df.get('amount') if 'amount' in df.columns else df.get('volume'), errors='coerce')
+            if v is None or v.dropna().empty:
+                rows.append({"entity_type": entity_type, "id": eid, "volume_percentile": None})
+                continue
+            s = v.tail(lookback).dropna()
+            pct = float(s.rank(pct=True).iloc[-1]) if len(s) else None
+            rows.append({"entity_type": entity_type, "id": eid, "volume_percentile": pct})
+        except Exception as e:
+            rows.append({"entity_type": entity_type, "id": eid, "error": str(e)})
+    return _pd.DataFrame(rows)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.industry_weight_distribution",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_industry_weight_distribution,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.cn.volume_percentile",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="computed",
+        compute=_compute_volume_percentile,
+    )
+)
