@@ -101,6 +101,11 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
         )
         # add encoding column if missing (for upgrades)
         await conn.execute("alter table if exists aku_cache_blob add column if not exists encoding text default 'raw'")
+        # helpful expression indexes for common JSON param filters
+        await conn.execute("create index if not exists idx_aku_cache_blob_param_symbol on aku_cache_blob ((params->>'symbol'))")
+        await conn.execute("create index if not exists idx_aku_cache_blob_param_index_code on aku_cache_blob ((params->>'index_code'))")
+        await conn.execute("create index if not exists idx_aku_cache_blob_param_index_symbol on aku_cache_blob ((params->>'index_symbol'))")
+        await conn.execute("create index if not exists idx_aku_cache_blob_param_board_code on aku_cache_blob ((params->>'board_code'))")
 
 
 def _row_key(dataset_id: str, rec: Dict[str, Any]) -> str:
@@ -320,6 +325,133 @@ async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[
             return raw, meta
         except Exception:
             return None
+
+
+async def fetch_blob_range(
+    pool: asyncpg.Pool,
+    dataset_id: str,
+    params: Dict[str, Any],
+    *,
+    max_candidates: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return records from blob cache that overlap with the requested time range.
+
+    This uses dataset_id and common id params (e.g., symbol/index_code/index_symbol/board_code/fund_code)
+    to narrow down candidates, and then filters decoded records to the requested [start, end] range.
+    """
+    logger.bind(dataset=dataset_id).info("fetching blob range")
+
+    # Determine requested range
+    req_start = params.get('start') or params.get('date')
+    req_end = params.get('end') or params.get('date')
+    if not (req_start or req_end):
+        return []
+
+    # Candidate id filters
+    id_keys: List[str] = []
+    for k in ("symbol", "index_code", "index_symbol", "board_code", "fund_code"):
+        if params.get(k):
+            id_keys.append(k)
+        # also constrain by freq if present to avoid mixing daily/minute payloads
+    freq_val = params.get('freq')
+    adjust_val = params.get('adjust')
+
+    where = ["dataset_id = $1"]
+    args: List[Any] = [dataset_id]
+    arg_i = 2
+    if id_keys:
+        # (params->>'k1' = $i or params->>'k2' = $i2 ... ) using same value per key from params
+        ors: List[str] = []
+        for k in id_keys:
+            ors.append(f"(params->>'{k}') = ${arg_i}")
+            args.append(str(params.get(k)))
+            arg_i += 1
+        where.append("(" + " or ".join(ors) + ")")
+    if freq_val:
+        where.append(f"(params->>'freq') = ${arg_i}")
+        args.append(str(freq_val))
+        arg_i += 1
+    if adjust_val:
+        where.append(f"(params->>'adjust') = ${arg_i}")
+        args.append(str(adjust_val))
+        arg_i += 1
+    ttl = _ttl_seconds(dataset_id)
+    if ttl and ttl > 0:
+        where.append(f"updated_at >= now() - interval '{ttl} seconds'")
+    sql = f"select raw_data, ak_function, adapter, timezone, params, encoding from aku_cache_blob where {' and '.join(where)} order by updated_at desc limit {int(max_candidates)}"
+
+    # helpers to parse time values
+    from datetime import datetime as _dt
+
+    def _parse_time(s: Optional[str]) -> Optional[_dt]:
+        if not s:
+            return None
+        try:
+            # normalize space to T for fromisoformat
+            s2 = str(s).replace(' ', 'T')
+            # strip timezone if present for naive comparison
+            if s2.endswith('Z'):
+                s2 = s2[:-1]
+            # handle pure date
+            if len(s2) == 10:
+                return _dt.fromisoformat(s2)
+            return _dt.fromisoformat(s2)
+        except Exception:
+            try:
+                # fallback: take only first 19 chars (YYYY-MM-DDTHH:MM:SS)
+                return _dt.fromisoformat(str(s)[:19].replace(' ', 'T'))
+            except Exception:
+                return None
+
+    req_start_dt = _parse_time(req_start)
+    req_end_dt = _parse_time(req_end)
+
+    def _within_range(val: Any) -> bool:
+        v = _parse_time(str(val))
+        if v is None:
+            return False
+        if req_start_dt and v < req_start_dt:
+            return False
+        if req_end_dt and v > req_end_dt:
+            return False
+        return True
+
+    results: List[Dict[str, Any]] = []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, *args)
+    for raw_data, akf, adp, tz, params_json, enc in rows:
+        try:
+            blob_bytes = bytes(raw_data)
+            enc_used = enc or 'raw'
+            if enc_used == 'zlib':
+                blob_bytes = zlib.decompress(blob_bytes)
+            obj = pickle.loads(blob_bytes)
+            # Expect a list[dict]
+            if not isinstance(obj, list):
+                continue
+            # Determine time field by peeking
+            time_field: Optional[str] = None
+            for r in obj:
+                if isinstance(r, dict):
+                    if 'datetime' in r:
+                        time_field = 'datetime'
+                        break
+                    if 'date' in r:
+                        time_field = 'date'
+                        break
+            if not time_field:
+                continue
+            for r in obj:
+                if not isinstance(r, dict):
+                    continue
+                tv = r.get(time_field)
+                if tv is None:
+                    continue
+                if _within_range(tv):
+                    results.append(r)
+        except Exception:
+            continue
+    return results
 
 
 async def purge_blob(
