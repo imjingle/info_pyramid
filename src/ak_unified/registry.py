@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 from .config import load_account_key_map  # noqa: E402
 
 
@@ -4139,3 +4140,44 @@ register(
         platform="cross",
     )
 )
+
+# Virtual dataset: multi-source fetch for AkShare-backed datasets
+# Usage: dataset_id like "<existing_akshare_dataset>.multi". It discovers the base dataset's ak_functions and fetches all in parallel.
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.multi",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="computed",
+        adapter="computed",
+        platform="cross",
+        param_transform=lambda p: p,
+        postprocess=None,
+        compute=lambda params: _compute_multi_source_ak('securities.equity.cn.quote', params)
+    )
+)
+
+def _compute_multi_source_ak(base_dataset_id: str, params: Dict[str, Any]) -> "pd.DataFrame":
+    from .dispatcher import fetch_data as _fetch
+    from .adapters.akshare_adapter import ak_function_vendor
+    spec = REGISTRY.get(base_dataset_id)
+    if spec is None or spec.adapter != 'akshare' or not spec.ak_functions:
+        return pd.DataFrame([])
+    frames: List[pd.DataFrame] = []  # type: ignore
+    for fn in spec.ak_functions:
+        try:
+            env = _fetch(base_dataset_id, params, ak_function=fn, allow_fallback=False)
+            df = pd.DataFrame(env.data)
+            if df is None or df.empty:
+                continue
+            df = df.copy()
+            if 'vendor' not in df.columns:
+                df['vendor'] = ak_function_vendor(fn)
+            df['ak_function'] = fn
+            frames.append(df)
+        except Exception:
+            continue
+    if not frames:
+        return pd.DataFrame([])
+    return pd.concat(frames, ignore_index=True)
