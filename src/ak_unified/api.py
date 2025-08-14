@@ -330,14 +330,14 @@ async def topic_qmt_board(
     board_kind: str = Query("industry"),  # industry|concept
     boards: Optional[List[str]] = Query(None),  # list of board names to aggregate; if empty, aggregates all
     interval: float = 2.0,
+    window_n: int = 10,
+    topn: int = 5,
 ) -> EventSourceResponse:
     async def gen():
-        # Check environment
         status = test_qmt_import()
         if not status.get("ok"):
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
-        # Resolve constituents via QMT dataset
         ds = 'securities.board.cn.industry.qmt' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.qmt'
         env = fetch_data(ds, {})
         df_list = env.data
@@ -345,14 +345,14 @@ async def topic_qmt_board(
             yield {"event": "update", "data": {"ok": True, "boards": [], "aggregates": []}}
             return
         import pandas as _pd
+        from collections import deque
         df = _pd.DataFrame(df_list)
         if boards:
             df = df[df['board_name'].astype(str).isin(boards)]
-        # Build mapping board_name -> symbols
         groups = df.groupby('board_name')['symbol'].apply(list).to_dict()
-        # Flatten symbols and subscribe
         sym_set = sorted({s for lst in groups.values() for s in lst})
         from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+        rolling = {b: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for b in groups.keys()}
         try:
             subscribe_quotes(sym_set)
             failures = 0
@@ -360,34 +360,62 @@ async def topic_qmt_board(
                 try:
                     tag, qdf = fetch_realtime_quotes(sym_set)
                     q = _pd.DataFrame(qdf)
-                    # basic normalization
-                    if 'pct_change' not in q.columns:
-                        # try compute from last and prev_close
-                        if 'last' in q.columns and 'prev_close' in q.columns:
-                            q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
-                        else:
-                            q['pct_change'] = _pd.NA
+                    if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
+                        q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
                     q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
                     q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
-                    # aggregate per board
+                    if '量比' in q.columns:
+                        q['volume_ratio'] = _pd.to_numeric(q['量比'], errors='coerce')
                     aggs = []
                     for b, syms in groups.items():
                         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
                         if sub.empty:
-                            aggs.append({"board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None})
+                            aggs.append({
+                                "board_name": b,
+                                "count": 0,
+                                "winners_ratio": None,
+                                "avg_pct_change": None,
+                                "total_amount": None,
+                                "advancers": 0,
+                                "decliners": 0,
+                                "unchanged": 0,
+                                "limit_up": 0,
+                                "limit_down": 0,
+                                "top_amount": [],
+                                "volume_ratio_avg": None,
+                                "rolling_avg_pct_change": None,
+                                "rolling_winners_ratio": None,
+                            })
                             continue
-                        winners = (sub['pct_change'] > 0).mean()
+                        winners_mask = sub['pct_change'] > 0
+                        winners = winners_mask.mean()
                         avg_pct = sub['pct_change'].mean()
                         total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
-                        top = sub.sort_values('pct_change', ascending=False).head(1)
-                        top_row = top.iloc[0].to_dict() if not top.empty else {}
+                        advancers = int((sub['pct_change'] > 0).sum())
+                        decliners = int((sub['pct_change'] < 0).sum())
+                        unchanged = int((sub['pct_change'] == 0).sum()) if sub['pct_change'].notna().any() else 0
+                        limit_up = int((sub['pct_change'] >= 9.8).sum())
+                        limit_down = int((sub['pct_change'] <= -9.8).sum())
+                        top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+                        top_list = top[['symbol', 'amount']].to_dict(orient='records') if not top.empty else []
+                        vr_avg = sub['volume_ratio'].mean() if 'volume_ratio' in sub.columns else None
+                        rolling[b]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
+                        rolling[b]["winners"].append(float(winners) if winners == winners else 0.0)
                         aggs.append({
                             "board_name": b,
                             "count": int(len(sub)),
                             "winners_ratio": float(winners) if winners == winners else None,
                             "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
                             "total_amount": float(total_amt) if total_amt == total_amt else None,
-                            "top_mover": {"symbol": top_row.get('symbol'), "pct_change": top_row.get('pct_change')}
+                            "advancers": advancers,
+                            "decliners": decliners,
+                            "unchanged": unchanged,
+                            "limit_up": limit_up,
+                            "limit_down": limit_down,
+                            "top_amount": top_list,
+                            "volume_ratio_avg": float(vr_avg) if vr_avg == vr_avg else None,
+                            "rolling_avg_pct_change": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None,
+                            "rolling_winners_ratio": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
                         })
                     payload = {"ok": True, "provider": "qmt", "boards": list(groups.keys()), "aggregates": aggs}
                     yield {"event": "update", "data": payload}
@@ -410,6 +438,8 @@ async def topic_qmt_board(
 async def topic_qmt_index(
     index_codes: List[str] = Query(...),  # e.g., 000300.SH
     interval: float = 2.0,
+    window_n: int = 10,
+    topn: int = 5,
 ) -> EventSourceResponse:
     async def gen():
         status = test_qmt_import()
@@ -417,14 +447,15 @@ async def topic_qmt_index(
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
         import pandas as _pd
+        from collections import deque
         from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
-        # Resolve constituents for each index
         groups: Dict[str, list] = {}
         for idx in index_codes:
             env = fetch_data('market.index.constituents.qmt', {"index_code": idx})
             df = _pd.DataFrame(env.data)
             groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
         sym_set = sorted({s for lst in groups.values() for s in lst})
+        rolling = {idx: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for idx in groups.keys()}
         try:
             subscribe_quotes(sym_set)
             failures = 0
@@ -440,17 +471,46 @@ async def topic_qmt_index(
                     for idx, syms in groups.items():
                         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
                         if sub.empty:
-                            aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None})
+                            aggs.append({
+                                "index_code": idx,
+                                "count": 0,
+                                "winners_ratio": None,
+                                "avg_pct_change": None,
+                                "total_amount": None,
+                                "advancers": 0,
+                                "decliners": 0,
+                                "unchanged": 0,
+                                "limit_up": 0,
+                                "limit_down": 0,
+                                "top_amount": [],
+                            })
                             continue
                         winners = (sub['pct_change'] > 0).mean()
                         avg_pct = sub['pct_change'].mean()
                         total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
+                        advancers = int((sub['pct_change'] > 0).sum())
+                        decliners = int((sub['pct_change'] < 0).sum())
+                        unchanged = int((sub['pct_change'] == 0).sum()) if sub['pct_change'].notna().any() else 0
+                        limit_up = int((sub['pct_change'] >= 9.8).sum())
+                        limit_down = int((sub['pct_change'] <= -9.8).sum())
+                        top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
+                        top_list = top[['symbol', 'amount']].to_dict(orient='records') if not top.empty else []
+                        rolling[idx]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
+                        rolling[idx]["winners"].append(float(winners) if winners == winners else 0.0)
                         aggs.append({
                             "index_code": idx,
                             "count": int(len(sub)),
                             "winners_ratio": float(winners) if winners == winners else None,
                             "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
                             "total_amount": float(total_amt) if total_amt == total_amt else None,
+                            "advancers": advancers,
+                            "decliners": decliners,
+                            "unchanged": unchanged,
+                            "limit_up": limit_up,
+                            "limit_down": limit_down,
+                            "top_amount": top_list,
+                            "rolling_avg_pct_change": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None,
+                            "rolling_winners_ratio": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
                         })
                     yield {"event": "update", "data": {"ok": True, "provider": "qmt", "indices": list(groups.keys()), "aggregates": aggs}}
                     failures = 0
