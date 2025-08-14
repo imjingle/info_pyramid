@@ -12,6 +12,15 @@ from .registry import REGISTRY
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
 
+def _apply_adapter_variant(dataset_id: str, adapter: Optional[str]) -> str:
+    if not adapter:
+        return dataset_id
+    candidate = f"{dataset_id}.{adapter}"
+    if candidate in REGISTRY:
+        return candidate
+    return dataset_id
+
+
 @app.get("/rpc/datasets")
 async def rpc_datasets() -> Dict[str, Any]:
     items = []
@@ -33,6 +42,7 @@ async def rpc_fetch(
     dataset_id: str = Query(...),
     ak_function: Optional[str] = Query(None),
     allow_fallback: bool = Query(False),
+    adapter: Optional[str] = Query(None),
     # common params (optional)
     symbol: Optional[str] = None,
     start: Optional[str] = None,
@@ -80,6 +90,7 @@ async def rpc_fetch(
     }.items():
         if v is not None:
             params[k] = v
+    dataset_id = _apply_adapter_variant(dataset_id, adapter)
     env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback)
     return env.model_dump()
 
@@ -89,12 +100,13 @@ async def rpc_fetch_async(
     dataset_id: str = Query(...),
     ak_function: Optional[str] = Query(None),
     allow_fallback: bool = Query(False),
+    adapter: Optional[str] = Query(None),
     symbol: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> Dict[str, Any]:
-    # limited async path for baostock datasets
     params: Dict[str, Any] = {k: v for k, v in {"symbol": symbol, "start": start, "end": end}.items() if v is not None}
+    dataset_id = _apply_adapter_variant(dataset_id, adapter)
     spec = REGISTRY.get(dataset_id)
     if spec and getattr(spec, 'adapter', 'akshare') == 'baostock':
         from .adapters.baostock_adapter import acall_baostock
@@ -115,8 +127,9 @@ async def rpc_fetch_async(
             "data_source": "baostock",
         }
         return env
-    # fallback to sync
-    env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback)
+    # generic async: run sync fetch in executor
+    loop = asyncio.get_running_loop()
+    env = await loop.run_in_executor(None, lambda: fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback))
     return env.model_dump()
 
 
