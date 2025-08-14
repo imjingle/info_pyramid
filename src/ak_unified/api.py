@@ -11,6 +11,7 @@ from .dispatcher import fetch_data, get_ohlcv, get_market_quote
 from .dispatcher import get_ohlcva
 from .registry import REGISTRY
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
+from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
@@ -193,6 +194,36 @@ async def rpc_ohlcva(
 ):
     env = get_ohlcva(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
+
+@app.get("/admin/cache/status")
+async def admin_cache_status() -> Dict[str, Any]:
+    pool = await _get_pool()
+    return {"enabled": pool is not None}
+
+@app.get("/admin/cache/stats")
+async def admin_cache_stats() -> Dict[str, Any]:
+    pool = await _get_pool()
+    if pool is None:
+        return {"enabled": False, "total": 0, "top_datasets": []}
+    stats = await _cache_stats(pool)
+    stats["enabled"] = True
+    return stats
+
+@app.post("/admin/cache/purge")
+async def admin_cache_purge(
+    dataset_id: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None),
+    index_symbol: Optional[str] = Query(None),
+    board_code: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    time_field: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    pool = await _get_pool()
+    if pool is None:
+        return {"enabled": False, "deleted": 0}
+    deleted = await _purge_records(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field)
+    return {"enabled": True, "deleted": int(deleted)}
 
 
 async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float, symbols: Optional[List[str]] = None):
