@@ -181,14 +181,31 @@ async def rpc_ohlcv(
     return env.model_dump()
 
 
-@app.get("/rpc/quote")
-async def rpc_quote(ak_function: Optional[str] = None, allow_fallback: bool = False, adapter: Optional[str] = None) -> Dict[str, Any]:
-    env = get_market_quote(ak_function=ak_function, allow_fallback=allow_fallback)
-    return env.model_dump()
-
-
-async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float):
+async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_function: Optional[str], adapter: Optional[str], interval_sec: float, symbols: Optional[List[str]] = None):
     dataset_id = _apply_adapter_variant(dataset_id, adapter)
+    # QMT subscription lifecycle for realtime quotes
+    if adapter == 'qmt' and dataset_id.endswith('quote') and symbols:
+        try:
+            from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+            subscribe_quotes(symbols)
+            while True:
+                tag, df = fetch_realtime_quotes(symbols)
+                payload = {
+                    "schema_version": "1.0.0",
+                    "provider": "qmt",
+                    "dataset": dataset_id,
+                    "params": params,
+                    "data": df.to_dict(orient="records"),
+                    "ak_function": tag,
+                }
+                yield {"event": "update", "data": payload}
+                await asyncio.sleep(interval_sec)
+        finally:
+            try:
+                unsubscribe_quotes(symbols)
+            except Exception:
+                pass
+    # generic path
     while True:
         spec = REGISTRY.get(dataset_id)
         if spec and getattr(spec, 'adapter', 'akshare') == 'baostock':
@@ -217,6 +234,7 @@ async def topic_stream(
     adapter: Optional[str] = None,
     # common params accepted for streaming
     symbol: Optional[str] = None,
+    symbols: Optional[List[str]] = Query(None),
     start: Optional[str] = None,
     end: Optional[str] = None,
     date: Optional[str] = None,
@@ -254,8 +272,22 @@ async def topic_stream(
     }.items():
         if v is not None:
             params[k] = v
-    generator = _polling_generator(dataset_id, params, ak_function, adapter, interval)
+    sym_list = symbols or ([symbol] if symbol else None)
+    generator = _polling_generator(dataset_id, params, ak_function, adapter, interval, sym_list)
     return EventSourceResponse(generator)
+
+
+@app.get("/rpc/quote")
+async def rpc_quote(ak_function: Optional[str] = None, allow_fallback: bool = False, adapter: Optional[str] = None, symbols: Optional[List[str]] = Query(None)) -> Dict[str, Any]:
+    if adapter == 'qmt':
+        try:
+            from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
+            tag, df = fetch_realtime_quotes(symbols)
+            return {"schema_version": "1.0.0", "provider": "qmt", "dataset": "securities.equity.cn.quote.qmt", "params": {"symbols": symbols}, "data": df.to_dict(orient='records'), "ak_function": tag, "data_source": "qmt"}
+        except Exception as e:  # noqa: BLE001
+            return {"schema_version": "1.0.0", "provider": "qmt", "error": str(e)}
+    env = get_market_quote(ak_function=ak_function, allow_fallback=allow_fallback)
+    return env.model_dump()
 
 
 @app.get("/providers/qmt/status")
