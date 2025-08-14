@@ -3,9 +3,84 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 from typing import Any, Dict, Optional
 
+import pandas as pd
+
 from ..storage import get_pool
+
+
+_NUMERIC_FIELDS = {
+    'open','high','low','close','last','prev_close','change','pct_change',
+    'volume','amount','turnover_rate','pe','pe_ttm','pb','nav','acc_nav',
+    'daily_return','yield','yield_','settlement','open_interest','iv','delta',
+    'gamma','vega','theta','rho','weight'
+}
+
+
+def _to_date_str(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    try:
+        ts = pd.to_datetime(v)
+        return ts.strftime('%Y-%m-%d')
+    except Exception:
+        return None
+
+
+def _to_datetime_str(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    try:
+        ts = pd.to_datetime(v)
+        # keep ISO8601, naive or with tz if present
+        return ts.isoformat()
+    except Exception:
+        return None
+
+
+def _to_float(v: Any) -> Optional[float]:
+    try:
+        f = float(v)
+        if math.isfinite(f):
+            return f
+        return None
+    except Exception:
+        return None
+
+
+def normalize_record(rec: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k, v in rec.items():
+        key = str(k)
+        if key == 'date':
+            ds = _to_date_str(v)
+            if ds is not None:
+                out['date'] = ds
+            continue
+        if key == 'datetime':
+            ds = _to_datetime_str(v)
+            if ds is not None:
+                out['datetime'] = ds
+            continue
+        if key == 'symbol' or key == 'index_symbol' or key == 'board_code':
+            if isinstance(v, str):
+                out[key] = v.strip().upper()
+            else:
+                out[key] = v
+            continue
+        if key in _NUMERIC_FIELDS:
+            f = _to_float(v)
+            if f is not None:
+                out[key] = f
+            else:
+                # keep None for invalid numerics
+                out[key] = None
+            continue
+        # passthrough other fields
+        out[key] = v
+    return out
 
 
 async def export_cache(output: str, dataset_prefix: Optional[str] = None, *, time_field: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, chunk_size: int = 5000) -> int:
@@ -37,6 +112,7 @@ async def export_cache(output: str, dataset_prefix: Optional[str] = None, *, tim
                         break
                     for ds, rec in rows:
                         obj = rec if isinstance(rec, dict) else json.loads(rec)
+                        obj = normalize_record(obj)
                         f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
                         count += 1
         except AttributeError:
@@ -49,6 +125,7 @@ async def export_cache(output: str, dataset_prefix: Optional[str] = None, *, tim
                         break
                     for ds, rec in rows:
                         obj = rec if isinstance(rec, dict) else json.loads(rec)
+                        obj = normalize_record(obj)
                         f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
                         count += 1
                     offset += chunk_size
@@ -75,7 +152,12 @@ async def import_cache(input_path: str, dataset_prefix: Optional[str] = None, *,
                     continue
                 if dataset_prefix and not ds.startswith(dataset_prefix):
                     continue
-                batch.setdefault(ds, []).append(rec)
+                norm = normalize_record(rec)
+                # basic validation: require either date or datetime key for time series
+                if 'date' not in norm and 'datetime' not in norm:
+                    # allow import but consistent hashing will fallback; optionally skip
+                    pass
+                batch.setdefault(ds, []).append(norm)
                 total += 1
                 if sum(len(v) for v in batch.values()) >= batch_size:
                     for ds_id, recs in batch.items():
