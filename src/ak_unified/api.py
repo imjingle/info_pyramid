@@ -761,6 +761,7 @@ async def topic_board(
     include_percentiles: bool = True,
     bucket_sec: int = 60,
     history_buckets: int = 30,
+    weight_by: str = Query("none"),  # none|amount
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
@@ -820,13 +821,23 @@ async def topic_board(
                             "board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None,
                             "total_amount": None, "top_amount": [], "bucket_ts": datetime.now(timezone.utc).isoformat(),
                             "bucket_history": list(bucket_roll[b]),
+                            "turnover_avg": None, "amplitude_avg": None, "volume_ratio_avg": None,
                         })
                         continue
                     winners = (sub['pct_change'] > 0).mean()
-                    avg_pct = sub['pct_change'].mean()
+                    if weight_by == 'amount' and 'amount' in sub.columns:
+                        w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+                        p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                        avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    else:
+                        avg_pct = sub['pct_change'].mean()
                     total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
                     top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
                     top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+                    turnover_avg = _pd.to_numeric(sub.get('turnover_rate'), errors='coerce').mean() if 'turnover_rate' in sub.columns else None
+                    amplitude_col = 'amplitude' if 'amplitude' in sub.columns else ('振幅' if '振幅' in sub.columns else None)
+                    amplitude_avg = _pd.to_numeric(sub.get(amplitude_col), errors='coerce').mean() if amplitude_col else None
+                    volume_ratio_avg = _pd.to_numeric(sub.get('量比'), errors='coerce').mean() if '量比' in sub.columns else (_pd.to_numeric(sub.get('volume_ratio'), errors='coerce').mean() if 'volume_ratio' in sub.columns else None)
                     rolling[b]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                     rolling[b]["winners"].append(float(winners) if winners == winners else 0.0)
                     now = datetime.now(timezone.utc)
@@ -851,6 +862,9 @@ async def topic_board(
                         "rolling_winners_ratio": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
                         "bucket_ts": bucket_start.isoformat(),
                         "bucket_history": list(bucket_roll[b]),
+                        "turnover_avg": float(turnover_avg) if turnover_avg == turnover_avg else None,
+                        "amplitude_avg": float(amplitude_avg) if amplitude_avg == amplitude_avg else None,
+                        "volume_ratio_avg": float(volume_ratio_avg) if volume_ratio_avg == volume_ratio_avg else None,
                     })
                 if include_percentiles and aggs:
                     vals = [v for (_, v) in board_vals if v is not None]
@@ -880,6 +894,7 @@ async def topic_index(
     include_percentiles: bool = True,
     bucket_sec: int = 60,
     history_buckets: int = 30,
+    weight_by: str = Query("none"),  # none|amount
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
@@ -937,10 +952,19 @@ async def topic_index(
                         aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": [], "bucket_ts": bucket_start.isoformat(), "bucket_history": list(bucket_roll[idx])})
                         continue
                     winners = (sub['pct_change'] > 0).mean()
-                    avg_pct = sub['pct_change'].mean()
+                    if weight_by == 'amount' and 'amount' in sub.columns:
+                        w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+                        p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                        avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    else:
+                        avg_pct = sub['pct_change'].mean()
                     total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
                     top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
                     top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+                    turnover_avg = _pd.to_numeric(sub.get('turnover_rate'), errors='coerce').mean() if 'turnover_rate' in sub.columns else None
+                    amplitude_col = 'amplitude' if 'amplitude' in sub.columns else ('振幅' if '振幅' in sub.columns else None)
+                    amplitude_avg = _pd.to_numeric(sub.get(amplitude_col), errors='coerce').mean() if amplitude_col else None
+                    volume_ratio_avg = _pd.to_numeric(sub.get('量比'), errors='coerce').mean() if '量比' in sub.columns else (_pd.to_numeric(sub.get('volume_ratio'), errors='coerce').mean() if 'volume_ratio' in sub.columns else None)
                     rolling[idx]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                     rolling[idx]["winners"].append(float(winners) if winners == winners else 0.0)
                     now = datetime.now(timezone.utc)
@@ -965,6 +989,9 @@ async def topic_index(
                         "rolling_winners_ratio": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
                         "bucket_ts": bucket_start.isoformat(),
                         "bucket_history": list(bucket_roll[idx]),
+                        "turnover_avg": float(turnover_avg) if turnover_avg == turnover_avg else None,
+                        "amplitude_avg": float(amplitude_avg) if amplitude_avg == amplitude_avg else None,
+                        "volume_ratio_avg": float(volume_ratio_avg) if volume_ratio_avg == volume_ratio_avg else None,
                     })
                 if include_percentiles and aggs:
                     vals = [v for (_, v) in idx_vals if v is not None]
