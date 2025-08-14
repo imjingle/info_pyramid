@@ -34,10 +34,20 @@ def call_qmt(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame
         # Realtime quote snapshot
         df = pd.DataFrame(columns=['symbol', 'symbol_name', 'datetime', 'last', 'open', 'high', 'low', 'prev_close', 'volume', 'amount'])
         return ('qmt.realtime_quote', df)
-    if 'calendar' in dataset_id:
+    if dataset_id == 'market.calendar.qmt':
         df = pd.DataFrame(columns=['date', 'is_trading_day', 'market'])
         return ('qmt.calendar', df)
-    if 'adjust_factor' in dataset_id:
+    if dataset_id == 'securities.equity.cn.adjust_factor.qmt':
         df = pd.DataFrame(columns=['symbol', 'date', 'adjust_factor'])
         return ('qmt.adjust_factor', df)
+    if dataset_id == 'securities.board.cn.industry.qmt' or dataset_id == 'securities.board.cn.concept.qmt':
+        # board constituents with optional weights
+        df = pd.DataFrame(columns=['board_name', 'symbol', 'symbol_name', 'weight'])
+        return ('qmt.board_constituents', df)
+    if dataset_id == 'market.index.constituents.qmt':
+        df = pd.DataFrame(columns=['index_symbol', 'symbol', 'symbol_name', 'weight', 'date'])
+        return ('qmt.index_constituents', df)
+    if dataset_id == 'securities.equity.cn.corporate_actions.qmt':
+        df = pd.DataFrame(columns=['symbol', 'action_type', 'ex_date', 'record_date', 'payable_date', 'cash_dividend', 'stock_dividend_ratio', 'split_ratio'])
+        return ('qmt.corporate_actions', df)
     return ('qmt.unsupported', pd.DataFrame([]))

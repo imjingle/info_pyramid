@@ -2854,3 +2854,59 @@ register(
 # - baostock adapter: cross-platform（但其API服务端并发不安全，已在适配器内部串行化登录/登出）
 # - mootdx adapter: 依赖本地通达信数据文件及环境，完整功能最佳在 Windows 环境（Linux/Mac 需手工准备数据文件）
 # - qmt adapter: 仅 Windows 可用，需安装 QMT/ThinkTrader 客户端与原生 API
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.qmt",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=_noop_params,
+        adapter="qmt",
+        platform="windows",
+        notes="Windows-only. QMT board constituents",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.qmt",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=_noop_params,
+        adapter="qmt",
+        platform="windows",
+        notes="Windows-only. QMT board constituents",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents.qmt",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"index_code": p.get("index_code") or p.get("symbol")},
+        adapter="qmt",
+        platform="windows",
+        notes="Windows-only. QMT index constituents and weights",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.corporate_actions.qmt",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="qmt",
+        platform="windows",
+        notes="Windows-only. QMT corporate actions",
+    )
+)
