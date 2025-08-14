@@ -44,6 +44,18 @@ RPC examples:
 - Board aggregation snapshot: `/rpc/agg/board_snapshot?board_kind=industry&boards=半导体&topn=5&weight_by=amount` (weight_by: none|amount|weight)
 - Index aggregation snapshot: `/rpc/agg/index_snapshot?index_codes=000300.SH&topn=5&weight_by=weight` (当成分含权重列时可用)
 - Aggregation playback: `/rpc/agg/playback?entity_type=board&ids=半导体&freq=min5&window_n=10`
+- Fundamentals (CN):
+  - Indicators: `/rpc/fetch?dataset_id=securities.equity.cn.fundamentals.indicators&symbol=600000.SH&ak_function=stock_financial_analysis_indicator_em`
+  - Score: `/rpc/fetch?dataset_id=securities.equity.cn.fundamentals.score&symbol=600000.SH`
+  - Snapshot: `/rpc/fetch?dataset_id=securities.equity.cn.fundamentals.snapshot&symbol=600000.SH`
+- Fundamentals (HK):
+  - Indicators: `/rpc/fetch?dataset_id=securities.equity.hk.fundamentals.indicators&symbol=00001.HK`
+  - Snapshot: `/rpc/fetch?dataset_id=securities.equity.hk.fundamentals.snapshot&symbol=00001.HK`
+- Fundamentals (US):
+  - Indicators: `/rpc/fetch?dataset_id=securities.equity.us.fundamentals.indicators&symbol=AAPL`
+  - IBKR Overview/Statements/Ratios: `/rpc/fetch?dataset_id=securities.equity.us.fundamentals.overview.ibkr&symbol=AAPL`
+  - Alpha Vantage Fundamentals: `/rpc/fetch?dataset_id=securities.equity.us.fundamentals.income_statement.av&symbol=AAPL&period=annual`
+  - Snapshot: `/rpc/fetch?dataset_id=securities.equity.us.fundamentals.snapshot&symbol=AAPL`
 
 SSE topics:
 - Generic stream: `/topic/stream?dataset_id=securities.equity.cn.quote&interval=2.0`
