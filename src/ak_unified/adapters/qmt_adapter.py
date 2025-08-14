@@ -53,6 +53,9 @@ def _get_mapping() -> Dict[str, str]:
         # sync-first functions for history download (per xtdata design)
         'ohlcv_daily_sync': 'download_history_data',
         'ohlcv_min_sync': 'download_history_data',
+        # subscription functions for realtime quotes
+        'subscribe': 'subscribe_quote',
+        'unsubscribe': 'unsubscribe_quote',
     }
     path = os.environ.get('AKU_QMT_CONFIG')
     if not path:
@@ -188,3 +191,37 @@ def call_qmt(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame
         return (fn_name, df)
 
     return ('qmt.unsupported', pd.DataFrame([]))
+
+
+def subscribe_quotes(symbols: list[str]) -> str:
+    _ensure_windows()
+    mod = _import_qmt_module()
+    mapping = _get_mapping()
+    fn_name = mapping.get('subscribe')
+    if not fn_name or not hasattr(mod, fn_name):
+        return 'qmt.subscribe_unsupported'
+    getattr(mod, fn_name)(symbols)
+    return fn_name
+
+
+def unsubscribe_quotes(symbols: list[str]) -> str:
+    _ensure_windows()
+    mod = _import_qmt_module()
+    mapping = _get_mapping()
+    fn_name = mapping.get('unsubscribe')
+    if not fn_name or not hasattr(mod, fn_name):
+        return 'qmt.unsubscribe_unsupported'
+    getattr(mod, fn_name)(symbols)
+    return fn_name
+
+
+def fetch_realtime_quotes(symbols: Optional[list[str]] = None) -> Tuple[str, pd.DataFrame]:
+    _ensure_windows()
+    mod = _import_qmt_module()
+    mapping = _get_mapping()
+    fn_name = mapping.get('quote')
+    fn = getattr(mod, fn_name, None)
+    if fn is None:
+        return ('qmt.quote_unsupported', pd.DataFrame([]))
+    df = _to_dataframe(fn(symbols=symbols) if symbols else fn())
+    return (fn_name, df)

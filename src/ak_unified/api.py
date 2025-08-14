@@ -8,6 +8,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
 from .registry import REGISTRY
+from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
@@ -255,3 +256,38 @@ async def topic_stream(
             params[k] = v
     generator = _polling_generator(dataset_id, params, ak_function, adapter, interval)
     return EventSourceResponse(generator)
+
+
+@app.get("/providers/qmt/status")
+async def qmt_status() -> Dict[str, Any]:
+    return test_qmt_import()
+
+
+@app.post("/providers/qmt/subscribe")
+async def qmt_subscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
+    try:
+        from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
+        tag = subscribe_quotes(symbols)
+        return {"ok": True, "ak_function": tag}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/providers/qmt/unsubscribe")
+async def qmt_unsubscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
+    try:
+        from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
+        tag = unsubscribe_quotes(symbols)
+        return {"ok": True, "ak_function": tag}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/providers/qmt/quotes")
+async def qmt_quotes(symbols: Optional[List[str]] = Query(None)) -> Dict[str, Any]:
+    try:
+        from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
+        tag, df = fetch_realtime_quotes(symbols)
+        return {"ok": True, "ak_function": tag, "data": df.to_dict(orient='records')}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
