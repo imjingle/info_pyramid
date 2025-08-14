@@ -52,4 +52,43 @@ def call_qstock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFr
             df = df.rename(columns={'日期': 'date', '开盘': 'open', '最高': 'high', '最低': 'low', '收盘': 'close', '成交额': 'amount'})
             df.insert(0, 'symbol', symbol)
         return ('qstock.history', df)
+
+    # Industry/Concept lists
+    if dataset_id.endswith('board.industry.list.qstock'):
+        try:
+            df = _to_df(qs.industries()) if hasattr(qs, 'industries') else _to_df(qs.block_list('industry'))
+        except Exception as exc:
+            raise QStockAdapterError(str(exc)) from exc
+        return ('qstock.industries', df)
+
+    if dataset_id.endswith('board.concept.list.qstock'):
+        try:
+            df = _to_df(qs.concepts()) if hasattr(qs, 'concepts') else _to_df(qs.block_list('concept'))
+        except Exception as exc:
+            raise QStockAdapterError(str(exc)) from exc
+        return ('qstock.concepts', df)
+
+    # Constituents
+    if dataset_id.endswith('board.industry.cons.qstock') or dataset_id.endswith('board.concept.cons.qstock'):
+        code = params.get('board_code') or params.get('symbol')
+        try:
+            if hasattr(qs, 'block_stocks'):
+                df = _to_df(qs.block_stocks(code))
+            else:
+                df = _to_df(qs.members(code))
+        except Exception as exc:
+            raise QStockAdapterError(str(exc)) from exc
+        if not df.empty:
+            df = df.rename(columns={'代码': 'symbol', '名称': 'symbol_name', '权重': 'weight'})
+        return ('qstock.block_members', df)
+
+    # Announcements
+    if dataset_id.endswith('announcements.qstock'):
+        symbol = params.get('symbol')
+        try:
+            fn = getattr(qs, 'announcements', None)
+            df = _to_df(fn(symbol)) if fn else _to_df([])
+        except Exception as exc:
+            raise QStockAdapterError(str(exc)) from exc
+        return ('qstock.announcements', df)
     return ('qstock.unsupported', pd.DataFrame([]))

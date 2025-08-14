@@ -3050,14 +3050,64 @@ register(
         platform="cross",
     )
 )
+
+# qstock: industry/concept and announcements
 register(
     DatasetSpec(
-        dataset_id="securities.equity.cn.quote.qstock",
+        dataset_id="securities.board.cn.industry.list.qstock",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=_noop_params,
+        adapter="qstock",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.list.qstock",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=_noop_params,
+        adapter="qstock",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.cons.qstock",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="qstock",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.cons.qstock",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="qstock",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.announcements.qstock",
         category="securities",
         domain="securities.equity.cn",
         ak_functions=[],
         source="qstock",
-        param_transform=lambda p: {"symbols": p.get("symbols")},
+        param_transform=lambda p: {"symbol": p.get("symbol")},
         adapter="qstock",
         platform="cross",
     )
@@ -3088,6 +3138,66 @@ register(
         platform="cross",
     )
 )
++register(
++    DatasetSpec(
++        dataset_id="securities.board.cn.industry.list.adata",
++        category="securities",
++        domain="securities.board.cn",
++        ak_functions=[],
++        source="adata",
++        param_transform=_noop_params,
++        adapter="adata",
++        platform="cross",
++    )
++)
++register(
++    DatasetSpec(
++        dataset_id="securities.board.cn.concept.list.adata",
++        category="securities",
++        domain="securities.board.cn",
++        ak_functions=[],
++        source="adata",
++        param_transform=_noop_params,
++        adapter="adata",
++        platform="cross",
++    )
++)
++register(
++    DatasetSpec(
++        dataset_id="securities.board.cn.industry.cons.adata",
++        category="securities",
++        domain="securities.board.cn",
++        ak_functions=[],
++        source="adata",
++        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
++        adapter="adata",
++        platform="cross",
++    )
++)
++register(
++    DatasetSpec(
++        dataset_id="securities.board.cn.concept.cons.adata",
++        category="securities",
++        domain="securities.board.cn",
++        ak_functions=[],
++        source="adata",
++        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
++        adapter="adata",
++        platform="cross",
++    )
++)
++register(
++    DatasetSpec(
++        dataset_id="securities.equity.cn.announcements.adata",
++        category="securities",
++        domain="securities.equity.cn",
++        ak_functions=[],
++        source="adata",
++        param_transform=lambda p: {"symbol": p.get("symbol")},
++        adapter="adata",
++        platform="cross",
++    )
++)
 
 # efinance extras
 register(
@@ -3170,12 +3280,100 @@ from datetime import datetime as _dt
 
 def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
     # params: entity_type=board|index, ids=[...], start, end, window
+    from .dispatcher import fetch_data as _fetch
+    import pandas as _pd
+    import numpy as _np
+
     entity_type = (params.get('entity_type') or 'board').lower()
-    ids = params.get('ids') or []
+    ids: List[str] = params.get('ids') or []
+    start = params.get('start')
+    end = params.get('end')
     window = int(params.get('window') or 20)
-    # placeholder: compute from historical data (requires client to fetch or we fetch via akshare index/board daily)
-    # For brevity, return empty with metadata
-    return _pd.DataFrame([{ 'entity_type': entity_type, 'ids': ids, 'window': window, 'note': 'TODO: implement valuation percentiles and momentum from historical OHLCV/PE/PB time series'}])
+
+    out_rows: List[Dict[str, Any]] = []
+
+    def rolling_momentum(df: _pd.DataFrame) -> tuple[float, float]:
+        if df.empty:
+            return _np.nan, _np.nan
+        close = _pd.to_numeric(df.get('close') or df.get('收盘'), errors='coerce')
+        if close.isna().all():
+            return _np.nan, _np.nan
+        # simple momentum: pct_change over window; and mean daily return over window
+        ret = close.pct_change()
+        momo = (close.iloc[-1] / close.iloc[-min(window, len(close))] - 1.0) if len(close) >= 2 else _np.nan
+        avg_ret = ret.tail(window).mean(skipna=True)
+        return momo, avg_ret if _np.isfinite(avg_ret) else _np.nan
+
+    def series_percentile(s: _pd.Series) -> float:
+        if s.empty:
+            return _np.nan
+        last = _pd.to_numeric(s, errors='coerce').dropna()
+        if last.empty:
+            return _np.nan
+        rank = last.rank(pct=True).iloc[-1]
+        return float(rank)
+
+    # helper to compute valuation percentile for index via legulegu datasets
+    def valuation_for_index(name: str) -> tuple[float, float]:
+        try:
+            pe_env = _fetch("market.valuation.cn.index_pe", {"symbol": name})
+            pb_env = _fetch("market.valuation.cn.index_pb", {"symbol": name})
+            pe_df = _pd.DataFrame(pe_env.data)
+            pb_df = _pd.DataFrame(pb_env.data)
+            pe_pct = series_percentile(pe_df.get("滚动市盈率")) if not pe_df.empty and "滚动市盈率" in pe_df.columns else _np.nan
+            pb_pct = series_percentile(pb_df.get("市净率")) if not pb_df.empty and "市净率" in pb_df.columns else _np.nan
+            return pe_pct, pb_pct
+        except Exception:
+            return _np.nan, _np.nan
+
+    # select dataset ids for history
+    if entity_type == 'index':
+        for idx in ids:
+            try:
+                ohlcv_env = _fetch("market.index.ohlcva", {"symbol": idx, "start": start, "end": end})
+                df = _pd.DataFrame(ohlcv_env.data)
+                momo, avg_ret = rolling_momentum(df)
+                pe_pct, pb_pct = valuation_for_index(idx)
+                out_rows.append({
+                    "entity_type": "index",
+                    "id": idx,
+                    "momentum_{:d}d".format(window): momo,
+                    "avg_daily_return_{:d}d".format(window): avg_ret,
+                    "pe_percentile": pe_pct,
+                    "pb_percentile": pb_pct,
+                    "last_close": _pd.to_numeric(df["close"], errors='coerce').iloc[-1] if not df.empty and "close" in df.columns else None,
+                    "last_date": str(df["date"].iloc[-1]) if not df.empty and "date" in df.columns else None,
+                })
+            except Exception:
+                out_rows.append({"entity_type": "index", "id": idx, "error": "fetch_failed"})
+    else:
+        # board: industry/concept; use akshare board daily
+        for board in ids:
+            try:
+                # try industry first, then concept
+                for ds in ("securities.board.cn.industry.ohlcva_daily", "securities.board.cn.concept.ohlcva_daily"):
+                    ohlcv_env = _fetch(ds, {"symbol": board, "start": start, "end": end})
+                    df = _pd.DataFrame(ohlcv_env.data)
+                    if not df.empty:
+                        break
+                momo, avg_ret = rolling_momentum(df)
+                # board valuation percentile is not standard; approximate by index PB/PE percentile of a proxy if provided via params.mapping
+                pe_pct = _np.nan
+                pb_pct = _np.nan
+                out_rows.append({
+                    "entity_type": "board",
+                    "id": board,
+                    "momentum_{:d}d".format(window): momo,
+                    "avg_daily_return_{:d}d".format(window): avg_ret,
+                    "pe_percentile": pe_pct,
+                    "pb_percentile": pb_pct,
+                    "last_close": _pd.to_numeric(df["close"], errors='coerce').iloc[-1] if not df.empty and "close" in df.columns else None,
+                    "last_date": str(df["date"].iloc[-1]) if not df.empty and "date" in df.columns else None,
+                })
+            except Exception:
+                out_rows.append({"entity_type": "board", "id": board, "error": "fetch_failed"})
+
+    return _pd.DataFrame(out_rows)
 
 
 def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
