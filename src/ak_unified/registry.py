@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+import numpy as np  # type: ignore
+from .config import load_account_key_map  # noqa: E402
+
 
 ParamTransform = Callable[[Dict[str, Any]], Dict[str, Any]]
 FieldMap = Dict[str, str]
@@ -107,7 +110,6 @@ FIELD_FUND_FLOW_STOCK: FieldMap = {
 # ---------- Macro postprocessors ----------
 
 import pandas as pd  # noqa: E402
-import numpy as np  # type: ignore
 
 
 def _macro_ppi_post(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -1779,6 +1781,8 @@ ACCOUNT_KEY_MAP: Dict[str, str] = {
     "筹资活动产生的现金流量净额": "cff_net",
     "现金及现金等价物净增加额": "cash_net_change",
 }
+
+ACCOUNT_KEY_MAP = load_account_key_map(ACCOUNT_KEY_MAP)
 
 
 def _map_account_key(key: str) -> str:
