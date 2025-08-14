@@ -82,6 +82,20 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
             create index if not exists idx_aku_cache_dataset_indexsym_date on aku_cache(dataset_id, index_symbol, date);
             create index if not exists idx_aku_cache_dataset_board_datetime on aku_cache(dataset_id, board_code, datetime);
             create index if not exists idx_aku_cache_updated_at on aku_cache(updated_at);
+            -- request-level blob cache
+            create table if not exists aku_cache_blob (
+              key text primary key,
+              dataset_id text not null,
+              params jsonb not null,
+              ak_function text,
+              adapter text,
+              timezone text,
+              created_at timestamptz default now(),
+              updated_at timestamptz default now(),
+              raw_data bytea not null
+            );
+            create index if not exists idx_aku_cache_blob_dataset on aku_cache_blob(dataset_id);
+            create index if not exists idx_aku_cache_blob_updated_at on aku_cache_blob(updated_at);
             """
         )
 
@@ -168,9 +182,11 @@ async def cache_stats(pool: asyncpg.Pool) -> Dict[str, Any]:
     async with pool.acquire() as conn:
         total = await conn.fetchval("select count(*) from aku_cache")
         by_ds = await conn.fetch("select dataset_id, count(*) as cnt from aku_cache group by dataset_id order by cnt desc limit 50")
+        total_blob = await conn.fetchval("select count(*) from aku_cache_blob")
     return {
         "total": int(total or 0),
         "top_datasets": [{"dataset_id": r[0], "count": int(r[1])} for r in by_ds],
+        "total_blob": int(total_blob or 0),
     }
 
 
@@ -223,3 +239,48 @@ async def purge_records(
         return int(res.split()[-1])
     except Exception:
         return 0
+
+
+# ---------- Request-level blob cache ----------
+import pickle
+
+
+def _request_key(dataset_id: str, params: Dict[str, Any]) -> str:
+    # stable hash over dataset_id + sorted params json
+    s = json.dumps({"dataset_id": dataset_id, "params": params}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+async def upsert_blob_snapshot(
+    pool: asyncpg.Pool,
+    dataset_id: str,
+    params: Dict[str, Any],
+    *,
+    ak_function: Optional[str] = None,
+    adapter: Optional[str] = None,
+    timezone: Optional[str] = None,
+    raw_obj: Any,
+) -> None:
+    key = _request_key(dataset_id, params)
+    data = pickle.dumps(raw_obj)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            insert into aku_cache_blob (key, dataset_id, params, ak_function, adapter, timezone, raw_data, updated_at)
+            values ($1,$2,$3,$4,$5,$6,$7, now())
+            on conflict (key) do update set raw_data = excluded.raw_data, ak_function = excluded.ak_function, adapter = excluded.adapter, timezone = excluded.timezone, updated_at = now();
+            """,
+            key, dataset_id, json.dumps(params, ensure_ascii=False), ak_function, adapter, timezone, data,
+        )
+
+
+async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Any]:
+    key = _request_key(dataset_id, params)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("select raw_data from aku_cache_blob where key = $1", key)
+        if not row:
+            return None
+        try:
+            return pickle.loads(bytes(row[0]))
+        except Exception:
+            return None

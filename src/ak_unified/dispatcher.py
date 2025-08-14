@@ -8,7 +8,7 @@ import pandas as _pd
 from .schemas.envelope import DataEnvelope, Pagination
 from .registry import REGISTRY, DatasetSpec
 from .adapters.akshare_adapter import call_akshare
-from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert
+from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert, upsert_blob_snapshot as _db_upsert_blob
 import asyncio
 from .normalization import apply_and_validate
 
@@ -271,13 +271,19 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 
     df = _postprocess(spec, df, params)
-    records = apply_and_validate(dataset_id, df.to_dict(orient="records"))
+    raw_records = df.to_dict(orient="records")
+    records = apply_and_validate(dataset_id, raw_records)
 
     # merge with cache and upsert
     if pool is not None and records and not is_realtime:
         try:
             # naive merge by row_key uniqueness is handled in upsert
             loop.run_until_complete(_db_upsert(pool, dataset_id, records))
+            # store request-level blob for exact replay (pickle)
+            try:
+                loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, ak_function=fn_used, adapter=spec.adapter, timezone=DEFAULT_TIMEZONE, raw_obj=raw_records))
+            except Exception:
+                pass
             if cached:
                 # return union (cached + fresh unique)
                 # simple de-dup by (symbol/index_symbol/board_code,time)
