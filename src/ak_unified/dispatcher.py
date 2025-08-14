@@ -75,6 +75,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     elif spec.adapter == "mootdx":
         from .adapters.mootdx_adapter import call_mootdx
         fn_used, df = call_mootdx(dataset_id, ak_params)
+    elif spec.adapter == "qmt":
+        from .adapters.qmt_adapter import call_qmt
+        fn_used, df = call_qmt(dataset_id, ak_params)
     else:
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 

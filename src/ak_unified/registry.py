@@ -2766,3 +2766,70 @@ register(
         adapter="mootdx",
     )
 )
+
+# QMT Windows-only complementary datasets (requires QMT Native API on Windows)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_daily.qmt",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="qmt",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.ohlcv_min.qmt",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq")},
+        adapter="qmt",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.qmt",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=_noop_params,
+        adapter="qmt",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.calendar.qmt",
+        category="market",
+        domain="market.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"start": p.get("start"), "end": p.get("end")},
+        adapter="qmt",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.adjust_factor.qmt",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qmt",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="qmt",
+    )
+)
+
+# NOTE on platform availability:
+# - akshare adapter: cross-platform
+# - baostock adapter: cross-platform（但其API服务端并发不安全，已在适配器内部串行化登录/登出）
+# - mootdx adapter: 依赖本地通达信数据文件及环境，完整功能最佳在 Windows 环境（Linux/Mac 需手工准备数据文件）
+# - qmt adapter: 仅 Windows 可用，需安装 QMT/ThinkTrader 客户端与原生 API
