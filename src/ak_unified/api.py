@@ -332,34 +332,69 @@ async def topic_qmt_board(
     interval: float = 2.0,
     window_n: int = 10,
     topn: int = 5,
+    bucket_sec: int = 60,
+    history_buckets: int = 30,
+    adapter_priority: Optional[List[str]] = Query(None),  # e.g., qmt,akshare
+    include_percentiles: bool = True,
 ) -> EventSourceResponse:
     async def gen():
         status = test_qmt_import()
-        if not status.get("ok"):
+        if not status.get("ok") and (not adapter_priority or adapter_priority and adapter_priority[0] == 'qmt'):
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
         ds = 'securities.board.cn.industry.qmt' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.qmt'
-        env = fetch_data(ds, {})
-        df_list = env.data
+        # allow fallback to akshare if qmt board dataset unsupported
+        try:
+            env = fetch_data(ds, {})
+            df_list = env.data
+        except Exception:
+            df_list = []
         if not df_list:
             yield {"event": "update", "data": {"ok": True, "boards": [], "aggregates": []}}
             return
         import pandas as _pd
         from collections import deque
+        from datetime import datetime, timedelta, timezone
         df = _pd.DataFrame(df_list)
         if boards:
             df = df[df['board_name'].astype(str).isin(boards)]
         groups = df.groupby('board_name')['symbol'].apply(list).to_dict()
         sym_set = sorted({s for lst in groups.values() for s in lst})
-        from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+
+        # quotes fetcher with adapter fallback
+        async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+            # try qmt first if available
+            if not adapter_priority or 'qmt' in adapter_priority:
+                try:
+                    from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
+                    tag, qdf = fetch_realtime_quotes(symbols)
+                    q = _pd.DataFrame(qdf)
+                    return q
+                except Exception:
+                    pass
+            # fallback to akshare market spot
+            try:
+                env = fetch_data('securities.equity.cn.quote', {})
+                q = _pd.DataFrame(env.data)
+                return q[q['symbol'].astype(str).isin(symbols)] if not q.empty else _pd.DataFrame([])
+            except Exception:
+                return _pd.DataFrame([])
+
         rolling = {b: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for b in groups.keys()}
+        bucket_roll = {b: deque(maxlen=history_buckets) for b in groups.keys()}
+        bucket_start = datetime.now(timezone.utc)
         try:
-            subscribe_quotes(sym_set)
+            # subscribe if qmt chosen
+            if not adapter_priority or 'qmt' in adapter_priority:
+                try:
+                    from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
+                    subscribe_quotes(sym_set)
+                except Exception:
+                    pass
             failures = 0
             while True:
                 try:
-                    tag, qdf = fetch_realtime_quotes(sym_set)
-                    q = _pd.DataFrame(qdf)
+                    q = await fetch_quotes(sym_set)
                     if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
                         q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
                     q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
@@ -367,6 +402,21 @@ async def topic_qmt_board(
                     if '量比' in q.columns:
                         q['volume_ratio'] = _pd.to_numeric(q['量比'], errors='coerce')
                     aggs = []
+                    # compute cross-board percentiles if needed
+                    board_stats = []
+                    for b, syms in groups.items():
+                        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                        if sub.empty:
+                            board_stats.append((b, None, None))
+                        else:
+                            board_stats.append((b, float(sub['pct_change'].mean()), float(sub['amount'].sum()) if 'amount' in sub.columns else None))
+                    # percentile helper
+                    def percentile_rank(values, value):
+                        s = _pd.Series([v for v in values if v is not None])
+                        if s.empty or value is None:
+                            return None
+                        return float((s < value).mean())
+
                     for b, syms in groups.items():
                         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
                         if sub.empty:
@@ -385,10 +435,11 @@ async def topic_qmt_board(
                                 "volume_ratio_avg": None,
                                 "rolling_avg_pct_change": None,
                                 "rolling_winners_ratio": None,
+                                "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                                "pct_rank_vs_boards": None,
                             })
                             continue
-                        winners_mask = sub['pct_change'] > 0
-                        winners = winners_mask.mean()
+                        winners = (sub['pct_change'] > 0).mean()
                         avg_pct = sub['pct_change'].mean()
                         total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
                         advancers = int((sub['pct_change'] > 0).sum())
@@ -401,6 +452,16 @@ async def topic_qmt_board(
                         vr_avg = sub['volume_ratio'].mean() if 'volume_ratio' in sub.columns else None
                         rolling[b]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                         rolling[b]["winners"].append(float(winners) if winners == winners else 0.0)
+                        # minute-bucket aggregation
+                        now = datetime.now(timezone.utc)
+                        end_bucket = bucket_start + timedelta(seconds=bucket_sec)
+                        if now >= end_bucket:
+                            # finalize bucket metrics
+                            bucket_roll[b].append({"ts": end_bucket.isoformat(), "avg_pct": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None, "winners": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None})
+                        pct_rank = None
+                        if include_percentiles:
+                            vals = [v for (_, v, __) in board_stats]
+                            pct_rank = percentile_rank(vals, float(avg_pct) if avg_pct == avg_pct else None)
                         aggs.append({
                             "board_name": b,
                             "count": int(len(sub)),
@@ -416,9 +477,13 @@ async def topic_qmt_board(
                             "volume_ratio_avg": float(vr_avg) if vr_avg == vr_avg else None,
                             "rolling_avg_pct_change": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None,
                             "rolling_winners_ratio": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
+                            "bucket_ts": bucket_start.isoformat(),
+                            "pct_rank_vs_boards": pct_rank,
+                            "bucket_history": list(bucket_roll[b]),
                         })
-                    payload = {"ok": True, "provider": "qmt", "boards": list(groups.keys()), "aggregates": aggs}
-                    yield {"event": "update", "data": payload}
+                    if datetime.now(timezone.utc) >= (bucket_start + timedelta(seconds=bucket_sec)):
+                        bucket_start = datetime.now(timezone.utc)
+                    yield {"event": "update", "data": {"ok": True, "provider": "qmt", "boards": list(groups.keys()), "aggregates": aggs}}
                     failures = 0
                 except Exception as e:  # noqa: BLE001
                     failures += 1
@@ -428,6 +493,7 @@ async def topic_qmt_board(
                 await asyncio.sleep(interval)
         finally:
             try:
+                from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
                 unsubscribe_quotes(sym_set)
             except Exception:
                 pass
@@ -440,34 +506,74 @@ async def topic_qmt_index(
     interval: float = 2.0,
     window_n: int = 10,
     topn: int = 5,
+    bucket_sec: int = 60,
+    history_buckets: int = 30,
+    adapter_priority: Optional[List[str]] = Query(None),
+    include_percentiles: bool = True,
 ) -> EventSourceResponse:
     async def gen():
         status = test_qmt_import()
-        if not status.get("ok"):
+        if not status.get("ok") and (not adapter_priority or adapter_priority and adapter_priority[0] == 'qmt'):
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
         import pandas as _pd
         from collections import deque
-        from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
+        from datetime import datetime, timedelta, timezone
+        # Resolve constituents for each index
         groups: Dict[str, list] = {}
         for idx in index_codes:
-            env = fetch_data('market.index.constituents.qmt', {"index_code": idx})
-            df = _pd.DataFrame(env.data)
-            groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+            try:
+                env = fetch_data('market.index.constituents.qmt', {"index_code": idx})
+                df = _pd.DataFrame(env.data)
+                groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+            except Exception:
+                groups[idx] = []
         sym_set = sorted({s for lst in groups.values() for s in lst})
+        # quotes fetcher with fallback
+        async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
+            if not adapter_priority or 'qmt' in adapter_priority:
+                try:
+                    from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
+                    tag, qdf = fetch_realtime_quotes(symbols)
+                    return _pd.DataFrame(qdf)
+                except Exception:
+                    pass
+            try:
+                env = fetch_data('securities.equity.cn.quote', {})
+                dq = _pd.DataFrame(env.data)
+                return dq[dq['symbol'].astype(str).isin(symbols)] if not dq.empty else _pd.DataFrame([])
+            except Exception:
+                return _pd.DataFrame([])
+        # subscribe qmt
+        if not adapter_priority or 'qmt' in adapter_priority:
+            try:
+                from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
+                subscribe_quotes(sym_set)
+            except Exception:
+                pass
         rolling = {idx: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for idx in groups.keys()}
+        bucket_roll = {idx: deque(maxlen=history_buckets) for idx in groups.keys()}
+        bucket_start = datetime.now(timezone.utc)
+        failures = 0
         try:
-            subscribe_quotes(sym_set)
-            failures = 0
             while True:
                 try:
-                    tag, qdf = fetch_realtime_quotes(sym_set)
-                    q = _pd.DataFrame(qdf)
+                    q = await fetch_quotes(sym_set)
                     if 'pct_change' not in q.columns and 'last' in q.columns and 'prev_close' in q.columns:
                         q['pct_change'] = ( _pd.to_numeric(q['last'], errors='coerce') / _pd.to_numeric(q['prev_close'], errors='coerce') - 1.0 ) * 100.0
                     q['amount'] = _pd.to_numeric(q.get('amount'), errors='coerce')
                     q['pct_change'] = _pd.to_numeric(q.get('pct_change'), errors='coerce')
                     aggs = []
+                    # compute percentiles across indices
+                    idx_vals = []
+                    for idx, syms in groups.items():
+                        sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
+                        idx_vals.append((idx, float(sub['pct_change'].mean()) if not sub.empty else None))
+                    def percentile_rank(values, value):
+                        s = _pd.Series([v for v in values if v is not None])
+                        if s.empty or value is None:
+                            return None
+                        return float((s < value).mean())
                     for idx, syms in groups.items():
                         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
                         if sub.empty:
@@ -483,6 +589,10 @@ async def topic_qmt_index(
                                 "limit_up": 0,
                                 "limit_down": 0,
                                 "top_amount": [],
+                                "rolling_avg_pct_change": None,
+                                "rolling_winners_ratio": None,
+                                "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                                "pct_rank_vs_indices": None,
                             })
                             continue
                         winners = (sub['pct_change'] > 0).mean()
@@ -497,6 +607,9 @@ async def topic_qmt_index(
                         top_list = top[['symbol', 'amount']].to_dict(orient='records') if not top.empty else []
                         rolling[idx]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                         rolling[idx]["winners"].append(float(winners) if winners == winners else 0.0)
+                        if datetime.now(timezone.utc) >= (bucket_start + timedelta(seconds=bucket_sec)):
+                            bucket_roll[idx].append({"ts": (bucket_start + timedelta(seconds=bucket_sec)).isoformat(), "avg_pct": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None, "winners": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None})
+                        pct_rank = percentile_rank([v for (_, v) in idx_vals], float(avg_pct) if avg_pct == avg_pct else None) if include_percentiles else None
                         aggs.append({
                             "index_code": idx,
                             "count": int(len(sub)),
@@ -511,7 +624,12 @@ async def topic_qmt_index(
                             "top_amount": top_list,
                             "rolling_avg_pct_change": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None,
                             "rolling_winners_ratio": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
+                            "bucket_ts": bucket_start.isoformat(),
+                            "pct_rank_vs_indices": pct_rank,
+                            "bucket_history": list(bucket_roll[idx]),
                         })
+                    if datetime.now(timezone.utc) >= (bucket_start + timedelta(seconds=bucket_sec)):
+                        bucket_start = datetime.now(timezone.utc)
                     yield {"event": "update", "data": {"ok": True, "provider": "qmt", "indices": list(groups.keys()), "aggregates": aggs}}
                     failures = 0
                 except Exception as e:  # noqa: BLE001
@@ -522,6 +640,7 @@ async def topic_qmt_index(
                 await asyncio.sleep(interval)
         finally:
             try:
+                from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
                 unsubscribe_quotes(sym_set)
             except Exception:
                 pass
