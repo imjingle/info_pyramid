@@ -721,11 +721,13 @@ async def topic_board(
     topn: int = 5,
     adapter_priority: Optional[List[str]] = Query(None),  # e.g., akshare,qstock,efinance,adata
     include_percentiles: bool = True,
+    bucket_sec: int = 60,
+    history_buckets: int = 30,
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
         from collections import deque
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
         # resolve constituents per board using adapter priority
         def fetch_cons_one(b: str) -> _pd.DataFrame:
             for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
@@ -761,6 +763,8 @@ async def topic_board(
             return _pd.DataFrame([])
 
         rolling = {b: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for b in groups.keys()}
+        bucket_roll = {b: deque(maxlen=history_buckets) for b in groups.keys()}
+        bucket_start = datetime.now(timezone.utc)
         failures = 0
         while True:
             try:
@@ -777,6 +781,7 @@ async def topic_board(
                         aggs.append({
                             "board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None,
                             "total_amount": None, "top_amount": [], "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                            "bucket_history": list(bucket_roll[b]),
                         })
                         continue
                     winners = (sub['pct_change'] > 0).mean()
@@ -786,6 +791,16 @@ async def topic_board(
                     top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
                     rolling[b]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                     rolling[b]["winners"].append(float(winners) if winners == winners else 0.0)
+                    now = datetime.now(timezone.utc)
+                    end_bucket = bucket_start + timedelta(seconds=bucket_sec)
+                    if now >= end_bucket:
+                        bucket_roll[b].append({
+                            "ts": end_bucket.isoformat(),
+                            "avg_pct": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None,
+                            "winners": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
+                        })
+                if datetime.now(timezone.utc) >= (bucket_start + timedelta(seconds=bucket_sec)):
+                    bucket_start = datetime.now(timezone.utc)
                     board_vals.append((b, float(avg_pct) if avg_pct == avg_pct else None))
                     aggs.append({
                         "board_name": b,
@@ -796,7 +811,8 @@ async def topic_board(
                         "top_amount": top_list,
                         "rolling_avg_pct_change": float(_pd.Series(rolling[b]["avg_pct"]).mean()) if rolling[b]["avg_pct"] else None,
                         "rolling_winners_ratio": float(_pd.Series(rolling[b]["winners"]).mean()) if rolling[b]["winners"] else None,
-                        "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                        "bucket_ts": bucket_start.isoformat(),
+                        "bucket_history": list(bucket_roll[b]),
                     })
                 if include_percentiles and aggs:
                     vals = [v for (_, v) in board_vals if v is not None]
@@ -824,11 +840,13 @@ async def topic_index(
     topn: int = 5,
     adapter_priority: Optional[List[str]] = Query(None),
     include_percentiles: bool = True,
+    bucket_sec: int = 60,
+    history_buckets: int = 30,
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
         from collections import deque
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
         groups: Dict[str, list] = {}
         def fetch_cons(idx: str) -> _pd.DataFrame:
             for adpt in (adapter_priority or ['akshare','qstock','efinance','adata']):
@@ -840,6 +858,7 @@ async def topic_index(
                         return df[['symbol']]
                 except Exception:
                     continue
+        
             return _pd.DataFrame([])
 
         for idx in index_codes:
@@ -862,6 +881,8 @@ async def topic_index(
             return _pd.DataFrame([])
 
         rolling = {idx: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for idx in groups.keys()}
+        bucket_roll = {idx: deque(maxlen=history_buckets) for idx in groups.keys()}
+        bucket_start = datetime.now(timezone.utc)
         failures = 0
         while True:
             try:
@@ -875,7 +896,7 @@ async def topic_index(
                 for idx, syms in groups.items():
                     sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
                     if sub.empty:
-                        aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "bucket_ts": datetime.now(timezone.utc).isoformat()})
+                        aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": [], "bucket_ts": bucket_start.isoformat(), "bucket_history": list(bucket_roll[idx])})
                         continue
                     winners = (sub['pct_change'] > 0).mean()
                     avg_pct = sub['pct_change'].mean()
@@ -884,6 +905,16 @@ async def topic_index(
                     top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
                     rolling[idx]["avg_pct"].append(float(avg_pct) if avg_pct == avg_pct else 0.0)
                     rolling[idx]["winners"].append(float(winners) if winners == winners else 0.0)
+                    now = datetime.now(timezone.utc)
+                    end_bucket = bucket_start + timedelta(seconds=bucket_sec)
+                    if now >= end_bucket:
+                        bucket_roll[idx].append({
+                            "ts": end_bucket.isoformat(),
+                            "avg_pct": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None,
+                            "winners": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
+                        })
+                if datetime.now(timezone.utc) >= (bucket_start + timedelta(seconds=bucket_sec)):
+                    bucket_start = datetime.now(timezone.utc)
                     idx_vals.append((idx, float(avg_pct) if avg_pct == avg_pct else None))
                     aggs.append({
                         "index_code": idx,
@@ -894,7 +925,8 @@ async def topic_index(
                         "top_amount": top_list,
                         "rolling_avg_pct_change": float(_pd.Series(rolling[idx]["avg_pct"]).mean()) if rolling[idx]["avg_pct"] else None,
                         "rolling_winners_ratio": float(_pd.Series(rolling[idx]["winners"]).mean()) if rolling[idx]["winners"] else None,
-                        "bucket_ts": datetime.now(timezone.utc).isoformat(),
+                        "bucket_ts": bucket_start.isoformat(),
+                        "bucket_history": list(bucket_roll[idx]),
                     })
                 if include_percentiles and aggs:
                     vals = [v for (_, v) in idx_vals if v is not None]
