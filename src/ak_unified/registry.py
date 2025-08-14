@@ -2681,3 +2681,64 @@ register(
         adapter="baostock",
     )
 )
+
+# MooTDX complementary datasets
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.blocks.mootdx",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=_noop_params,
+        adapter="mootdx",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.blocks.mootdx",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=_noop_params,
+        adapter="mootdx",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents.mootdx",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=lambda p: {"index_code": p.get("index_code") or p.get("symbol")},
+        adapter="mootdx",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.adjust_factor.mootdx",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="mootdx",
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.fundamentals.mootdx",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="mootdx",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="mootdx",
+    )
+)
