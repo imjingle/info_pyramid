@@ -50,6 +50,9 @@ def _get_mapping() -> Dict[str, str]:
         'board_concept': 'get_board_concept_constituents',
         'index_constituents': 'get_index_constituents',
         'corporate_actions': 'get_corporate_actions',
+        # sync-first functions for history download (per xtdata design)
+        'ohlcv_daily_sync': 'download_history_data',
+        'ohlcv_min_sync': 'download_history_data',
     }
     path = os.environ.get('AKU_QMT_CONFIG')
     if not path:
@@ -102,6 +105,13 @@ def call_qmt(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame
         fn = getattr(qmt, fn_name, None)
         if fn is None:
             raise QmtAdapterError(f"QMT function not found: {fn_name}")
+        # sync-first if available
+        sync_name = mapping.get('ohlcv_daily_sync')
+        if sync_name and hasattr(qmt, sync_name):
+            try:
+                getattr(qmt, sync_name)(symbol=params.get('symbol'), start=params.get('start'), end=params.get('end'), period='1d')
+            except Exception:
+                pass
         df = _to_dataframe(fn(symbol=params.get('symbol'), start=params.get('start'), end=params.get('end')))
         if not df.empty:
             rename = {'日期': 'date', '时间': 'datetime', '开盘': 'open', '最高': 'high', '最低': 'low', '收盘': 'close', '成交量': 'volume', '成交额': 'amount'}
@@ -115,6 +125,13 @@ def call_qmt(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame
         fn = getattr(qmt, fn_name, None)
         if fn is None:
             raise QmtAdapterError(f"QMT function not found: {fn_name}")
+        # sync-first if available
+        sync_name = mapping.get('ohlcv_min_sync')
+        if sync_name and hasattr(qmt, sync_name):
+            try:
+                getattr(qmt, sync_name)(symbol=params.get('symbol'), start=params.get('start'), end=params.get('end'), period=str(params.get('freq') or '5m'))
+            except Exception:
+                pass
         df = _to_dataframe(fn(symbol=params.get('symbol'), start=params.get('start'), end=params.get('end'), freq=params.get('freq')))
         if not df.empty:
             rename = {'日期': 'date', '时间': 'datetime', '开盘': 'open', '最高': 'high', '最低': 'low', '收盘': 'close', '成交量': 'volume', '成交额': 'amount'}
