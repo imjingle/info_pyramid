@@ -288,15 +288,43 @@ async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[
             return None
 
 
-async def purge_blob(pool: asyncpg.Pool, dataset_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> int:
+async def purge_blob(
+    pool: asyncpg.Pool,
+    dataset_id: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    dataset_prefix: Optional[str] = None,
+    updated_after: Optional[str] = None,
+    updated_before: Optional[str] = None,
+) -> int:
     async with pool.acquire() as conn:
         if params is not None:
             key = _request_key(dataset_id or "", params)
             res = await conn.execute("delete from aku_cache_blob where key = $1", key)
-        elif dataset_id is not None:
-            res = await conn.execute("delete from aku_cache_blob where dataset_id = $1", dataset_id)
         else:
-            return 0
+            where = []
+            args: List[Any] = []
+            i = 1
+            if dataset_id:
+                where.append(f"dataset_id = ${i}")
+                args.append(dataset_id)
+                i += 1
+            if dataset_prefix:
+                where.append(f"dataset_id like ${i}")
+                args.append(dataset_prefix + '%')
+                i += 1
+            if updated_after:
+                where.append(f"updated_at >= ${i}")
+                args.append(updated_after)
+                i += 1
+            if updated_before:
+                where.append(f"updated_at <= ${i}")
+                args.append(updated_before)
+                i += 1
+            if not where:
+                return 0
+            sql = f"delete from aku_cache_blob where {' and '.join(where)}"
+            res = await conn.execute(sql, *args)
     try:
         return int(res.split()[-1])
     except Exception:

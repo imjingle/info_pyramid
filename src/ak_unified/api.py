@@ -279,11 +279,17 @@ async def admin_cache_blob_get(dataset_id: str = Query(...), params: Dict[str, A
     return {"enabled": True, "found": True, "raw": raw_obj, "meta": meta}
 
 @app.post("/admin/cache/blob/purge")
-async def admin_cache_blob_purge(dataset_id: Optional[str] = Query(None), params: Optional[Dict[str, Any]] = Query(None)) -> Dict[str, Any]:
+async def admin_cache_blob_purge(
+    dataset_id: Optional[str] = Query(None),
+    params: Optional[Dict[str, Any]] = Query(None),
+    dataset_prefix: Optional[str] = Query(None),
+    updated_after: Optional[str] = Query(None),
+    updated_before: Optional[str] = Query(None),
+) -> Dict[str, Any]:
     pool = await _get_pool()
     if pool is None:
         return {"enabled": False, "deleted": 0}
-    deleted = await _blob_purge(pool, dataset_id, params)
+    deleted = await _blob_purge(pool, dataset_id, params, dataset_prefix=dataset_prefix, updated_after=updated_after, updated_before=updated_before)
     return {"enabled": True, "deleted": int(deleted)}
 
 @app.get("/rpc/replay")
