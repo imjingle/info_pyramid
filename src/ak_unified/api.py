@@ -10,9 +10,11 @@ from starlette.responses import JSONResponse
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
 from .dispatcher import get_ohlcva
 from .registry import REGISTRY
+from .schemas.envelope import DataEnvelope, Pagination
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
+from .normalization import apply_and_validate
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
@@ -294,7 +296,7 @@ async def admin_cache_blob_purge(
     return {"enabled": True, "deleted": int(deleted)}
 
 @app.get("/rpc/replay")
-async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...)) -> Dict[str, Any]:
+async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...), format: str = Query("raw")) -> Dict[str, Any]:
     pool = await _get_pool()
     if pool is None:
         return {"ok": False, "error": "cache disabled"}
@@ -302,7 +304,22 @@ async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Quer
     if res is None:
         return {"ok": False, "error": "not found"}
     raw_obj, meta = res
-    # Build an envelope-like response for convenience
+    if format == 'envelope':
+        spec = REGISTRY.get(dataset_id)
+        records = apply_and_validate(dataset_id, raw_obj if isinstance(raw_obj, list) else [])
+        env = DataEnvelope(
+            category=spec.category if spec else '',
+            domain=spec.domain if spec else '',
+            dataset=dataset_id,
+            params=meta.get('params') or params,
+            timezone=meta.get('timezone') or 'Asia/Shanghai',
+            data=records,
+            pagination=Pagination(offset=0, limit=len(records), total=len(records)),
+        )
+        env.ak_function = meta.get("ak_function")
+        env.data_source = meta.get("adapter")
+        return {"ok": True, "envelope": env.model_dump(mode="json")}
+    # raw
     return {
         "ok": True,
         "dataset": dataset_id,
