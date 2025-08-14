@@ -3630,6 +3630,7 @@ def _compute_board_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
     boards: List[str] = params.get('boards') or []
     topn = int(params.get('topn') or 5)
     adapter_priority: List[str] = params.get('adapter_priority') or ['akshare','qstock','efinance','adata']
+    weight_by = (params.get('weight_by') or 'none').lower()
 
     def fetch_cons_one(b: str) -> _pd.DataFrame:
         for adpt in adapter_priority:
@@ -3675,13 +3676,22 @@ def _compute_board_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
     for b, syms in groups.items():
         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
         if sub.empty:
-            aggs.append({"board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": []})
+            aggs.append({"board_name": b, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": [], "turnover_avg": None, "amplitude_avg": None, "volume_ratio_avg": None})
             continue
         winners = (sub['pct_change'] > 0).mean()
-        avg_pct = sub['pct_change'].mean()
+        if weight_by == 'amount' and 'amount' in sub.columns:
+            w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+            p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+            avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+        else:
+            avg_pct = sub['pct_change'].mean()
         total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
         top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
         top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+        turnover_avg = _pd.to_numeric(sub.get('turnover_rate'), errors='coerce').mean() if 'turnover_rate' in sub.columns else None
+        amplitude_col = 'amplitude' if 'amplitude' in sub.columns else ('振幅' if '振幅' in sub.columns else None)
+        amplitude_avg = _pd.to_numeric(sub.get(amplitude_col), errors='coerce').mean() if amplitude_col else None
+        volume_ratio_avg = _pd.to_numeric(sub.get('量比'), errors='coerce').mean() if '量比' in sub.columns else (_pd.to_numeric(sub.get('volume_ratio'), errors='coerce').mean() if 'volume_ratio' in sub.columns else None)
         if avg_pct == avg_pct:
             vals.append(float(avg_pct))
         aggs.append({
@@ -3691,6 +3701,9 @@ def _compute_board_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
             "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
             "total_amount": float(total_amt) if total_amt == total_amt else None,
             "top_amount": top_list,
+            "turnover_avg": float(turnover_avg) if turnover_avg == turnover_avg else None,
+            "amplitude_avg": float(amplitude_avg) if amplitude_avg == amplitude_avg else None,
+            "volume_ratio_avg": float(volume_ratio_avg) if volume_ratio_avg == volume_ratio_avg else None,
         })
     # percentiles vs peers
     out_rows: List[Dict[str, Any]] = []
@@ -3711,6 +3724,7 @@ def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
     index_codes: List[str] = params.get('index_codes') or []
     topn = int(params.get('topn') or 5)
     adapter_priority: List[str] = params.get('adapter_priority') or ['akshare','qstock','efinance','adata']
+    weight_by = (params.get('weight_by') or 'none').lower()
 
     def fetch_cons(idx: str) -> _pd.DataFrame:
         for adpt in adapter_priority:
@@ -3755,13 +3769,22 @@ def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
     for idx, syms in groups.items():
         sub = q[q['symbol'].astype(str).isin(syms)] if not q.empty else _pd.DataFrame([])
         if sub.empty:
-            aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": []})
+            aggs.append({"index_code": idx, "count": 0, "winners_ratio": None, "avg_pct_change": None, "total_amount": None, "top_amount": [], "turnover_avg": None, "amplitude_avg": None, "volume_ratio_avg": None})
             continue
         winners = (sub['pct_change'] > 0).mean()
-        avg_pct = sub['pct_change'].mean()
+        if weight_by == 'amount' and 'amount' in sub.columns:
+            w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+            p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+            avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+        else:
+            avg_pct = sub['pct_change'].mean()
         total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
         top = sub.sort_values('amount', ascending=False).head(topn) if 'amount' in sub.columns else _pd.DataFrame([])
         top_list = top[['symbol','amount']].to_dict(orient='records') if not top.empty else []
+        turnover_avg = _pd.to_numeric(sub.get('turnover_rate'), errors='coerce').mean() if 'turnover_rate' in sub.columns else None
+        amplitude_col = 'amplitude' if 'amplitude' in sub.columns else ('振幅' if '振幅' in sub.columns else None)
+        amplitude_avg = _pd.to_numeric(sub.get(amplitude_col), errors='coerce').mean() if amplitude_col else None
+        volume_ratio_avg = _pd.to_numeric(sub.get('量比'), errors='coerce').mean() if '量比' in sub.columns else (_pd.to_numeric(sub.get('volume_ratio'), errors='coerce').mean() if 'volume_ratio' in sub.columns else None)
         if avg_pct == avg_pct:
             vals.append(float(avg_pct))
         aggs.append({
@@ -3771,6 +3794,9 @@ def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
             "avg_pct_change": float(avg_pct) if avg_pct == avg_pct else None,
             "total_amount": float(total_amt) if total_amt == total_amt else None,
             "top_amount": top_list,
+            "turnover_avg": float(turnover_avg) if turnover_avg == turnover_avg else None,
+            "amplitude_avg": float(amplitude_avg) if amplitude_avg == amplitude_avg else None,
+            "volume_ratio_avg": float(volume_ratio_avg) if volume_ratio_avg == volume_ratio_avg else None,
         })
     out_rows: List[Dict[str, Any]] = []
     for a in aggs:
@@ -3781,25 +3807,3 @@ def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
             a['pct_rank_vs_indices'] = None
         out_rows.append(a)
     return _pd.DataFrame(out_rows)
-
-register(
-    DatasetSpec(
-        dataset_id="market.cn.board_aggregation.snapshot",
-        category="market",
-        domain="market.cn",
-        ak_functions=[],
-        source="computed",
-        compute=_compute_board_aggregation_snapshot,
-    )
-)
-
-register(
-    DatasetSpec(
-        dataset_id="market.cn.index_aggregation.snapshot",
-        category="market",
-        domain="market.cn",
-        ak_functions=[],
-        source="computed",
-        compute=_compute_index_aggregation_snapshot,
-    )
-)
