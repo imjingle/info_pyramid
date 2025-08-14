@@ -15,6 +15,14 @@ def _dsn() -> Optional[str]:
     return os.environ.get("AKU_DB_DSN")
 
 
+def _ttl_seconds() -> Optional[int]:
+    v = os.environ.get("AKU_CACHE_TTL_SECONDS")
+    try:
+        return int(v) if v else None
+    except Exception:
+        return None
+
+
 async def get_pool() -> Optional[asyncpg.Pool]:
     global _POOL
     dsn = _dsn()
@@ -45,6 +53,7 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
             create index if not exists idx_aku_cache_dataset_symbol_date on aku_cache(dataset_id, symbol, date);
             create index if not exists idx_aku_cache_dataset_indexsym_date on aku_cache(dataset_id, index_symbol, date);
             create index if not exists idx_aku_cache_dataset_board_datetime on aku_cache(dataset_id, board_code, datetime);
+            create index if not exists idx_aku_cache_updated_at on aku_cache(updated_at);
             """
         )
 
@@ -118,7 +127,71 @@ async def fetch_records(
         where.append(f"{time_field} <= ${i}")
         args.append(end)
         i += 1
+    ttl = _ttl_seconds()
+    if ttl and ttl > 0:
+        where.append(f"updated_at >= now() - interval '{ttl} seconds'")
     sql = f"select record from aku_cache where {' and '.join(where)} order by {time_field if time_field else 'updated_at'} asc"
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *args)
     return [dict(r[0]) if isinstance(r[0], dict) else json.loads(r[0]) for r in rows]
+
+
+async def cache_stats(pool: asyncpg.Pool) -> Dict[str, Any]:
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("select count(*) from aku_cache")
+        by_ds = await conn.fetch("select dataset_id, count(*) as cnt from aku_cache group by dataset_id order by cnt desc limit 50")
+    return {
+        "total": int(total or 0),
+        "top_datasets": [{"dataset_id": r[0], "count": int(r[1])} for r in by_ds],
+    }
+
+
+async def purge_records(
+    pool: asyncpg.Pool,
+    dataset_id: Optional[str] = None,
+    *,
+    symbol: Optional[str] = None,
+    index_symbol: Optional[str] = None,
+    board_code: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    time_field: Optional[str] = None,
+) -> int:
+    where = []
+    args: List[Any] = []
+    i = 1
+    if dataset_id:
+        where.append(f"dataset_id = ${i}")
+        args.append(dataset_id)
+        i += 1
+    if symbol:
+        where.append(f"symbol = ${i}")
+        args.append(symbol)
+        i += 1
+    if index_symbol:
+        where.append(f"index_symbol = ${i}")
+        args.append(index_symbol)
+        i += 1
+    if board_code:
+        where.append(f"board_code = ${i}")
+        args.append(board_code)
+        i += 1
+    if time_field in ("date", "datetime") and start:
+        where.append(f"{time_field} >= ${i}")
+        args.append(start)
+        i += 1
+    if time_field in ("date", "datetime") and end:
+        where.append(f"{time_field} <= ${i}")
+        args.append(end)
+        i += 1
+    if not where:
+        # avoid deleting whole table accidentally; require at least one filter
+        return 0
+    sql = f"delete from aku_cache where {' and '.join(where)}"
+    async with pool.acquire() as conn:
+        res = await conn.execute(sql, *args)
+    # res like 'DELETE <n>'
+    try:
+        return int(res.split()[-1])
+    except Exception:
+        return 0
