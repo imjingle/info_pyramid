@@ -59,10 +59,15 @@ def _ohlcv_stock_daily_params(p: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _index_daily_params(p: Dict[str, Any]) -> Dict[str, Any]:
-    symbol = _strip_suffix(p.get("symbol"))
-    start = _yyyymmdd(p.get("start"))
-    end = _yyyymmdd(p.get("end"))
-    return {"symbol": symbol, "start_date": start, "end_date": end}
+    raw = p.get("symbol")
+    sym = raw or ""
+    if isinstance(sym, str):
+        s = sym.upper()
+        if s.endswith('.SH') and len(s) >= 9:
+            sym = f"sh{s[:6]}"
+        elif s.endswith('.SZ') and len(s) >= 9:
+            sym = f"sz{s[:6]}"
+    return {"symbol": sym}
 
 
 def _fund_nav_params(p: Dict[str, Any]) -> Dict[str, Any]:
@@ -3277,6 +3282,15 @@ register(
 import pandas as _pd
 from datetime import datetime as _dt
 
+# Common CN index name to code mapping for convenience
+_CN_INDEX_ALIAS: Dict[str, str] = {
+    "沪深300": "000300.SH",
+    "上证50": "000016.SH",
+    "中证500": "000905.SH",
+    "创业板指": "399006.SZ",
+    "上证指数": "000001.SH",
+    "深证成指": "399001.SZ",
+}
 
 def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
     # params: entity_type=board|index, ids=[...], start, end, window
@@ -3293,16 +3307,22 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
     out_rows: List[Dict[str, Any]] = []
 
     def rolling_momentum(df: _pd.DataFrame) -> tuple[float, float]:
-        if df.empty:
+        if df is None or df.empty:
             return _np.nan, _np.nan
-        close = _pd.to_numeric(df.get('close') or df.get('收盘'), errors='coerce')
-        if close.isna().all():
+        series = None
+        if 'close' in df.columns:
+            series = _pd.to_numeric(df['close'], errors='coerce')
+        elif '收盘' in df.columns:
+            series = _pd.to_numeric(df['收盘'], errors='coerce')
+        else:
             return _np.nan, _np.nan
-        # simple momentum: pct_change over window; and mean daily return over window
-        ret = close.pct_change()
-        momo = (close.iloc[-1] / close.iloc[-min(window, len(close))] - 1.0) if len(close) >= 2 else _np.nan
+        if series.isna().all():
+            return _np.nan, _np.nan
+        ret = series.pct_change()
+        n = min(window, len(series))
+        momo = (series.iloc[-1] / series.iloc[-n] - 1.0) if n >= 2 else _np.nan
         avg_ret = ret.tail(window).mean(skipna=True)
-        return momo, avg_ret if _np.isfinite(avg_ret) else _np.nan
+        return float(momo) if momo == momo else _np.nan, float(avg_ret) if avg_ret == avg_ret else _np.nan
 
     def series_percentile(s: _pd.Series) -> float:
         if s.empty:
@@ -3316,6 +3336,7 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
     # helper to compute valuation percentile for index via legulegu datasets
     def valuation_for_index(name: str) -> tuple[float, float]:
         try:
+            target = _CN_INDEX_ALIAS.get(name, name)
             pe_env = _fetch("market.valuation.cn.index_pe", {"symbol": name})
             pb_env = _fetch("market.valuation.cn.index_pb", {"symbol": name})
             pe_df = _pd.DataFrame(pe_env.data)
@@ -3330,7 +3351,8 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
     if entity_type == 'index':
         for idx in ids:
             try:
-                ohlcv_env = _fetch("market.index.ohlcva", {"symbol": idx, "start": start, "end": end})
+                code = _CN_INDEX_ALIAS.get(idx, idx)
+                ohlcv_env = _fetch("market.index.ohlcva", {"symbol": code, "start": start, "end": end})
                 df = _pd.DataFrame(ohlcv_env.data)
                 momo, avg_ret = rolling_momentum(df)
                 pe_pct, pb_pct = valuation_for_index(idx)
@@ -3344,8 +3366,8 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
                     "last_close": _pd.to_numeric(df["close"], errors='coerce').iloc[-1] if not df.empty and "close" in df.columns else None,
                     "last_date": str(df["date"].iloc[-1]) if not df.empty and "date" in df.columns else None,
                 })
-            except Exception:
-                out_rows.append({"entity_type": "index", "id": idx, "error": "fetch_failed"})
+            except Exception as e:
+                out_rows.append({"entity_type": "index", "id": idx, "error": "fetch_failed", "error_detail": str(e)})
     else:
         # board: industry/concept; use akshare board daily
         for board in ids:
@@ -3370,8 +3392,8 @@ def _compute_board_index_val_momo(params: Dict[str, Any]) -> pd.DataFrame:
                     "last_close": _pd.to_numeric(df["close"], errors='coerce').iloc[-1] if not df.empty and "close" in df.columns else None,
                     "last_date": str(df["date"].iloc[-1]) if not df.empty and "date" in df.columns else None,
                 })
-            except Exception:
-                out_rows.append({"entity_type": "board", "id": board, "error": "fetch_failed"})
+            except Exception as e:
+                out_rows.append({"entity_type": "board", "id": board, "error": "fetch_failed", "error_detail": str(e)})
 
     return _pd.DataFrame(out_rows)
 
@@ -3399,5 +3421,18 @@ register(
         ak_functions=[],
         source="computed",
         compute=_compute_board_index_playback,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.quote.qstock",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="qstock",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="qstock",
+        platform="cross",
     )
 )

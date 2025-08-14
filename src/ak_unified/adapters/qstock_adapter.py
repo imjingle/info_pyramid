@@ -30,7 +30,7 @@ def _to_df(obj: Any) -> pd.DataFrame:
 def call_qstock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     qs = _import_qstock()
     # Realtime quotes
-    if dataset_id.endswith('quote'):
+    if '.quote' in dataset_id:
         symbols: Optional[List[str]] = params.get('symbols')
         try:
             df = qs.realtime(symbols) if symbols else qs.realtime()
@@ -41,7 +41,7 @@ def call_qstock(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFr
             df = df.rename(columns={'代码': 'symbol', '名称': 'symbol_name', '最新': 'last', '涨幅': 'pct_change', '成交': 'amount'})
         return ('qstock.realtime', df)
     # Daily history
-    if dataset_id.endswith('ohlcv_daily'):
+    if '.ohlcv_daily' in dataset_id:
         symbol = params.get('symbol')
         try:
             df = qs.history(symbol)

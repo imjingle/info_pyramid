@@ -30,7 +30,7 @@ def _to_df(obj: Any) -> pd.DataFrame:
 def call_adata(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     ad = _import_adata()
     # Assume adata has api: get_history(symbol, start, end), get_quotes(symbols)
-    if dataset_id.endswith('ohlcv_daily'):
+    if '.ohlcv_daily' in dataset_id:
         symbol = params.get('symbol')
         start = params.get('start')
         end = params.get('end')
@@ -44,7 +44,7 @@ def call_adata(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFra
             if 'symbol' not in df.columns:
                 df.insert(0, 'symbol', symbol)
         return ('adata.get_history', df)
-    if dataset_id.endswith('quote'):
+    if '.quote' in dataset_id:
         symbols: Optional[List[str]] = params.get('symbols')
         try:
             df = ad.get_quotes(symbols) if symbols else ad.get_quotes()

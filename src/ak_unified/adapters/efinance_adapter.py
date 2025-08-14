@@ -30,7 +30,7 @@ def _to_df(obj: Any) -> pd.DataFrame:
 def call_efinance(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     ef = _import_efinance()
     # Daily OHLCV
-    if dataset_id.endswith('ohlcv_daily'):
+    if '.ohlcv_daily' in dataset_id:
         symbol = params.get('symbol')
         start = (params.get('start') or '19900101').replace('-', '')
         end = (params.get('end') or '20990101').replace('-', '')
@@ -48,7 +48,7 @@ def call_efinance(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.Data
         return ('efinance.stock.get_quote_history', _to_df(df))
 
     # Minute OHLCV
-    if dataset_id.endswith('ohlcv_min'):
+    if '.ohlcv_min' in dataset_id:
         symbol = params.get('symbol')
         start = (params.get('start') or '19900101').replace('-', '')
         end = (params.get('end') or '20990101').replace('-', '')
@@ -67,7 +67,7 @@ def call_efinance(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.Data
         return ('efinance.stock.get_quote_history', _to_df(df))
 
     # Realtime quotes
-    if dataset_id.endswith('quote'):
+    if '.quote' in dataset_id:
         symbols: Optional[List[str]] = params.get('symbols')
         try:
             if symbols:

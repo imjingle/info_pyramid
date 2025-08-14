@@ -377,22 +377,32 @@ async def topic_qmt_board(
 
         # quotes fetcher with adapter fallback
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
-            # try qmt first if available
-            if not adapter_priority or 'qmt' in adapter_priority:
+            pref = adapter_priority or ['qmt','akshare','qstock','efinance','adata']
+            # qmt path
+            if 'qmt' in pref:
                 try:
                     from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
                     tag, qdf = fetch_realtime_quotes(symbols)
                     q = _pd.DataFrame(qdf)
-                    return q
+                    if not q.empty:
+                        return q
                 except Exception:
                     pass
-            # fallback to akshare market spot
-            try:
-                env = fetch_data('securities.equity.cn.quote', {})
-                q = _pd.DataFrame(env.data)
-                return q[q['symbol'].astype(str).isin(symbols)] if not q.empty else _pd.DataFrame([])
-            except Exception:
-                return _pd.DataFrame([])
+            # polling paths
+            for adpt in ['akshare','qstock','efinance','adata']:
+                if adpt not in pref:
+                    continue
+                try:
+                    ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+                    env = fetch_data(ds, {})
+                    q = _pd.DataFrame(env.data)
+                    if not q.empty:
+                        q = q[q['symbol'].astype(str).isin(symbols)]
+                        if not q.empty:
+                            return q
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
 
         rolling = {b: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for b in groups.keys()}
         bucket_roll = {b: deque(maxlen=history_buckets) for b in groups.keys()}
@@ -545,19 +555,30 @@ async def topic_qmt_index(
         sym_set = sorted({s for lst in groups.values() for s in lst})
         # quotes fetcher with fallback
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
-            if not adapter_priority or 'qmt' in adapter_priority:
+            pref = adapter_priority or ['qmt','akshare','qstock','efinance','adata']
+            if 'qmt' in pref:
                 try:
                     from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
                     tag, qdf = fetch_realtime_quotes(symbols)
-                    return _pd.DataFrame(qdf)
+                    q = _pd.DataFrame(qdf)
+                    if not q.empty:
+                        return q
                 except Exception:
                     pass
-            try:
-                env = fetch_data('securities.equity.cn.quote', {})
-                dq = _pd.DataFrame(env.data)
-                return dq[dq['symbol'].astype(str).isin(symbols)] if not dq.empty else _pd.DataFrame([])
-            except Exception:
-                return _pd.DataFrame([])
+            for adpt in ['akshare','qstock','efinance','adata']:
+                if adpt not in pref:
+                    continue
+                try:
+                    ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
+                    env = fetch_data(ds, {})
+                    dq = _pd.DataFrame(env.data)
+                    if not dq.empty:
+                        dq = dq[dq['symbol'].astype(str).isin(symbols)]
+                        if not dq.empty:
+                            return dq
+                except Exception:
+                    continue
+            return _pd.DataFrame([])
         # subscribe qmt
         if not adapter_priority or 'qmt' in adapter_priority:
             try:
