@@ -776,15 +776,22 @@ async def topic_board(
                     env = fetch_data(ds, {"board_code": b})
                     df = _pd.DataFrame(env.data)
                     if not df.empty and 'symbol' in df.columns:
-                        return df[['symbol']]
+                        return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
                 except Exception:
                     continue
             return _pd.DataFrame([])
 
         groups: Dict[str, list] = {}
+        weights_map: Dict[str, Dict[str, float]] = {}
         for b in boards:
             df = fetch_cons_one(b)
             groups[b] = df['symbol'].astype(str).tolist() if not df.empty else []
+            if not df.empty and 'weight' in df.columns:
+                w = _pd.to_numeric(df['weight'], errors='coerce')
+                sym = df['symbol'].astype(str)
+                weights_map[b] = {s: float(v) for s, v in zip(sym.tolist(), w.tolist()) if v == v}
+            else:
+                weights_map[b] = {}
         all_syms = sorted({s for lst in groups.values() for s in lst})
 
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
@@ -827,6 +834,12 @@ async def topic_board(
                     winners = (sub['pct_change'] > 0).mean()
                     if weight_by == 'amount' and 'amount' in sub.columns:
                         w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+                        p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                        avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    elif weight_by == 'weight' and weights_map.get(b):
+                        sub = sub.copy()
+                        sub['__w'] = sub['symbol'].astype(str).map(weights_map[b]).fillna(0.0)
+                        w = _pd.to_numeric(sub['__w'], errors='coerce').fillna(0.0)
                         p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
                         avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
                     else:
@@ -908,15 +921,22 @@ async def topic_index(
                     env = fetch_data(ds, {"index_code": idx})
                     df = _pd.DataFrame(env.data)
                     if not df.empty and 'symbol' in df.columns:
-                        return df[['symbol']]
+                        return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
                 except Exception:
                     continue
         
             return _pd.DataFrame([])
 
+        weights_map: Dict[str, Dict[str, float]] = {}
         for idx in index_codes:
             df = fetch_cons(idx)
             groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
+            if not df.empty and 'weight' in df.columns:
+                w = _pd.to_numeric(df['weight'], errors='coerce')
+                sym = df['symbol'].astype(str)
+                weights_map[idx] = {s: float(v) for s, v in zip(sym.tolist(), w.tolist()) if v == v}
+            else:
+                weights_map[idx] = {}
         all_syms = sorted({s for lst in groups.values() for s in lst})
 
         async def fetch_quotes(symbols: list[str]) -> _pd.DataFrame:
@@ -954,6 +974,12 @@ async def topic_index(
                     winners = (sub['pct_change'] > 0).mean()
                     if weight_by == 'amount' and 'amount' in sub.columns:
                         w = _pd.to_numeric(sub['amount'], errors='coerce').fillna(0.0)
+                        p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                        avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    elif weight_by == 'weight' and weights_map.get(idx):
+                        sub = sub.copy()
+                        sub['__w'] = sub['symbol'].astype(str).map(weights_map[idx]).fillna(0.0)
+                        w = _pd.to_numeric(sub['__w'], errors='coerce').fillna(0.0)
                         p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
                         avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
                     else:
