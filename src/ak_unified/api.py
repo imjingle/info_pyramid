@@ -763,7 +763,7 @@ async def topic_board(
     include_percentiles: bool = True,
     bucket_sec: int = 60,
     history_buckets: int = 30,
-    weight_by: str = Query("none"),  # none|amount
+    weight_by: str = Query("none"),  # none|amount|weight|market_cap|float_market_cap
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
@@ -844,6 +844,19 @@ async def topic_board(
                         w = _pd.to_numeric(sub['__w'], errors='coerce').fillna(0.0)
                         p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
                         avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    elif weight_by in ('market_cap','float_market_cap'):
+                        # try multiple possible column names
+                        cap_cols = ['market_cap','总市值','总市值(亿)','总市值-亿'] if weight_by == 'market_cap' else ['float_market_cap','流通市值','流通市值(亿)','流通市值-亿']
+                        wcol = next((c for c in cap_cols if c in sub.columns), None)
+                        if wcol:
+                            w = _pd.to_numeric(sub[wcol], errors='coerce').fillna(0.0)
+                            # normalize unit if in 亿
+                            if any(u in wcol for u in ['(亿)','-亿']):
+                                w = w * 1e8
+                            p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                            avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                        else:
+                            avg_pct = sub['pct_change'].mean()
                     else:
                         avg_pct = sub['pct_change'].mean()
                     total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
@@ -909,7 +922,7 @@ async def topic_index(
     include_percentiles: bool = True,
     bucket_sec: int = 60,
     history_buckets: int = 30,
-    weight_by: str = Query("none"),  # none|amount
+    weight_by: str = Query("none"),  # none|amount|weight|market_cap|float_market_cap
 ) -> EventSourceResponse:
     async def gen():
         import pandas as _pd
@@ -984,6 +997,17 @@ async def topic_index(
                         w = _pd.to_numeric(sub['__w'], errors='coerce').fillna(0.0)
                         p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
                         avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                    elif weight_by in ('market_cap','float_market_cap'):
+                        cap_cols = ['market_cap','总市值','总市值(亿)','总市值-亿'] if weight_by == 'market_cap' else ['float_market_cap','流通市值','流通市值(亿)','流通市值-亿']
+                        wcol = next((c for c in cap_cols if c in sub.columns), None)
+                        if wcol:
+                            w = _pd.to_numeric(sub[wcol], errors='coerce').fillna(0.0)
+                            if any(u in wcol for u in ['(亿)','-亿']):
+                                w = w * 1e8
+                            p = _pd.to_numeric(sub['pct_change'], errors='coerce').fillna(0.0)
+                            avg_pct = (p * w).sum() / w.replace(0, _pd.NA).sum() if w.sum() > 0 else p.mean()
+                        else:
+                            avg_pct = sub['pct_change'].mean()
                     else:
                         avg_pct = sub['pct_change'].mean()
                     total_amt = sub['amount'].sum() if 'amount' in sub.columns else None
