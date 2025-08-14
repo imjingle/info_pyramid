@@ -28,7 +28,7 @@ uv run python -c "import ak_unified as aku; print(aku.__version__)"
   - `market.cn.aggregation.playback`（指数/板块时序回放）
   - `market.cn.industry_weight_distribution`（指数行业权重分布，自动近似权重）
   - `market.cn.volume_percentile`（量能分位）
-- Complementary adapters: baostock, mootdx (Windows偏好), qmt (Windows-only), efinance, qstock, adata
+- Complementary adapters: baostock, mootdx (Windows偏好), qmt (Windows-only), efinance, qstock, adata, yfinance, Alpha Vantage
 
 ## FastAPI
 Run:
@@ -52,46 +52,17 @@ SSE topics:
 - Board aggregation (polling): `/topic/board?board_kind=industry&boards=半导体&interval=2&window_n=10&topn=5&bucket_sec=60&history_buckets=30`
 - Index aggregation (polling): `/topic/index?index_codes=000300.SH&interval=2&window_n=10&topn=5&bucket_sec=60&history_buckets=30`
 
+## US/HK data sources
+- yfinance（可选安装 `uv add yfinance` 或 `uv sync --extra yfinance`）
+  - US/HK: `securities.equity.{us|hk}.ohlcv_daily.yf` / `.ohlcv_min.yf` / `.quote.yf`
+  - 无 amount 字段；分钟级受 60d/区间限制
+- Alpha Vantage（无需额外包，需 API Key）
+  - 设置环境变量：`AKU_ALPHAVANTAGE_API_KEY` 或 `ALPHAVANTAGE_API_KEY`
+  - US/HK: `securities.equity.{us|hk}.ohlcv_daily.av` / `.ohlcv_min.av` / `.quote.av`
+  - 速率限制较严格；Note/Error 情况将返回空结果
+
+AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分钟级 `ohlcv_min` 由 yfinance/Alpha Vantage 互补。
+
 ## Normalization
 - 系统内置按数据集前缀的标准化规则：时间字段格式化、symbol 大写、常用数值字段转 float 等；并在响应和存储前统一应用
-- 可通过 `AKU_NORMALIZATION_RULES`（JSON 数组）覆盖/扩展前缀规则，例如：
-```json
-[
-  {"prefix":"securities.equity.cn.ohlcva_daily","keep_fields":["symbol","date","open","high","low","close","volume","amount"]},
-  {"prefix":"market.index","drop_fields":["turnover_rate"],"rename_map":{"收盘":"close"}}
-]
-```
-
-## Postgres caching (asyncpg)
-- 设置 `AKU_DB_DSN` 启用；可选 TTL：`AKU_CACHE_TTL_SECONDS` 或 `AKU_CACHE_TTL_PER_DATASET`
-- 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
-- 行级缓存表：`aku_cache`（JSON，便于按字段查询与缺口补拉）
-- 请求级缓存表：`aku_cache_blob`（pickle 二进制，保留原始数据结构与类型；可选 zlib 压缩，设 `AKU_BLOB_COMPRESS=1`；可选前缀白名单 `AKU_BLOB_ALLOW_PREFIXES=["securities.equity.cn.","market.index"]` 与大小限制 `AKU_BLOB_MAX_BYTES=10485760`）
-
-Replay & manage:
-- 回放：`/rpc/replay?dataset_id=...&params=...&format=raw|envelope`（命中则返回原始 raw 与元数据，或封装为 envelope）
-- 读取：`/admin/cache/blob?dataset_id=...&params=...`
-- 清理：`/admin/cache/blob/purge?dataset_id=...` 或按 `dataset_prefix` 与 `updated_after/updated_before`
-
-Export/Import cache:
-```bash
-# 行级（NDJSON）
-uv run python -m ak_unified.tools.cache_tools export -o cache.ndjson --dataset-prefix market.index --time-field date --start 2024-01-01 --end 2024-06-30 \
-  --rename-map-json '{"收盘":"close"}' --keep-fields symbol,date,open,high,low,close,volume,amount
-uv run python -m ak_unified.tools.cache_tools import -i cache.ndjson --drop-fields pct_change,turnover_rate
-
-# 请求级 blob（NDJSON, raw_data base64）
-uv run python -m ak_unified.tools.blob_tools export -o blobs.ndjson --dataset-prefix market.index --updated-after 2025-08-01
-uv run python -m ak_unified.tools.blob_tools import -i blobs.ndjson
-```
-
-## Testing
-Run tests:
-```bash
-uv run pytest -q
-```
-
-## Notes
-- Field names are normalized to snake_case and English.
-- Timezone defaults to Asia/Shanghai unless otherwise specified.
-- Some upstream endpoints may change; switch adapters or specify `ak_function` as needed.
+- 可通过 `AKU_NORMALIZATION_RULES`

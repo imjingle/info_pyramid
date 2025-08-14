@@ -3881,3 +3881,77 @@ register(
         platform="cross",
     )
 )
+
+# alphavantage adapter registrations (US/HK)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_daily.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_daily.av",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_min.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "freq": p.get("freq")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_min.av",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "freq": p.get("freq")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.quote.av",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.quote.av",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="alphavantage",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="alphavantage",
+        platform="cross",
+    )
+)
