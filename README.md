@@ -60,6 +60,11 @@ SSE topics:
   - 设置环境变量：`AKU_ALPHAVANTAGE_API_KEY` 或 `ALPHAVANTAGE_API_KEY`
   - US/HK: `securities.equity.{us|hk}.ohlcv_daily.av` / `.ohlcv_min.av` / `.quote.av`
   - 速率限制较严格；Note/Error 情况将返回空结果
+- IBKR（可选安装 `uv sync --extra ibkr`；需运行 TWS/IB Gateway 并允许 API）
+  - 连接配置：`AKU_IB_HOST`（默认 127.0.0.1）、`AKU_IB_PORT`（默认 7497）、`AKU_IB_CLIENT_ID`（默认 1）
+  - US/HK 行情：`securities.equity.{us|hk}.ohlcv_daily.ibkr` / `.ohlcv_min.ibkr` / `.quote.ibkr`
+  - 基本面：`securities.equity.us.fundamentals.{overview|statements|ratios|snapshot}.ibkr`
+  - 说明：基本面通过 `reqFundamentalData`（CompanyOverview/ReportsFinStatements/Ratios/ReportSnapshot）；行情历史通过 `reqHistoricalData`，分钟历史受限，按频率和 duration 动态选择；实时快照用 `reqMktData`
 
 AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分钟级 `ohlcv_min` 由 yfinance/Alpha Vantage 互补。
 

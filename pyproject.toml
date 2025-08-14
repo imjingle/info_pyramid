@@ -30,6 +30,7 @@ efinance = ["efinance>=0.5.0"]
 qstock = ["qstock>=0.6.0"]
 adata = ["adata"]
 yfinance = ["yfinance>=0.2.0"]
+ibkr = ["ib-insync>=0.9.86"]
 complements = [
   "baostock>=0.8.0",
   "mootdx>=0.9.0",
@@ -37,6 +38,7 @@ complements = [
   "qstock>=0.6.0",
   "adata",
   "yfinance>=0.2.0",
+  "ib-insync>=0.9.86",
 ]
 
 [build-system]

@@ -178,12 +178,16 @@ complements = [
     { name = "adata" },
     { name = "baostock" },
     { name = "efinance" },
+    { name = "ib-insync" },
     { name = "mootdx" },
     { name = "qstock" },
     { name = "yfinance" },
 ]
 efinance = [
     { name = "efinance" },
+]
+ibkr = [
+    { name = "ib-insync" },
 ]
 mootdx = [
     { name = "mootdx" },
@@ -211,6 +215,8 @@ requires-dist = [
     { name = "efinance", marker = "extra == 'complements'", specifier = ">=0.5.0" },
     { name = "efinance", marker = "extra == 'efinance'", specifier = ">=0.5.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "ib-insync", marker = "extra == 'complements'", specifier = ">=0.9.86" },
+    { name = "ib-insync", marker = "extra == 'ibkr'", specifier = ">=0.9.86" },
     { name = "mootdx", marker = "extra == 'complements'", specifier = ">=0.9.0" },
     { name = "mootdx", marker = "extra == 'mootdx'", specifier = ">=0.9.0" },
     { name = "orjson", specifier = ">=3.9.15" },
@@ -227,7 +233,7 @@ requires-dist = [
     { name = "yfinance", marker = "extra == 'complements'", specifier = ">=0.2.0" },
     { name = "yfinance", marker = "extra == 'yfinance'", specifier = ">=0.2.0" },
 ]
-provides-extras = ["baostock", "mootdx", "efinance", "qstock", "adata", "yfinance", "complements"]
+provides-extras = ["baostock", "mootdx", "efinance", "qstock", "adata", "yfinance", "ibkr", "complements"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=7.0" }]
@@ -939,6 +945,20 @@ wheels = [
 ]
 
 [[package]]
+name = "eventkit"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/16/1e/0fac4e45d71ace143a2673ec642701c3cd16f833a0e77a57fa6a40472696/eventkit-1.0.3.tar.gz", hash = "sha256:99497f6f3c638a50ff7616f2f8cd887b18bbff3765dc1bd8681554db1467c933", size = 28320, upload-time = "2023-12-11T11:41:35.339Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/d9/7497d650b69b420e1a913329a843e16c715dac883750679240ef00a921e2/eventkit-1.0.3-py3-none-any.whl", hash = "sha256:0e199527a89aff9d195b9671ad45d2cc9f79ecda0900de8ecfb4c864d67ad6a2", size = 31837, upload-time = "2023-12-11T11:41:33.358Z" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1270,6 +1290,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8c/23/911d93a022979d3ea295f659fbe7edb07b3f4561a477e83b3a6d0e0c914e/httpx-0.25.2.tar.gz", hash = "sha256:8b8fcaa0c8ea7b05edd69a094e63a2094c4efcb48129fb757361bc423c0ad9e8", size = 123889, upload-time = "2023-11-24T12:36:33.988Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/65/6940eeb21dcb2953778a6895281c179efd9100463ff08cb6232bb6480da7/httpx-0.25.2-py3-none-any.whl", hash = "sha256:a05d3d052d9b2dfce0e3896636467f8a5342fb2b902c819428e1ac65413ca118", size = 74980, upload-time = "2023-11-24T12:36:31.403Z" },
+]
+
+[[package]]
+name = "ib-insync"
+version = "0.9.86"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "eventkit" },
+    { name = "nest-asyncio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/bb/733d5c81c8c2f54e90898afc7ff3a99f4d53619e6917c848833f9cc1ab56/ib_insync-0.9.86.tar.gz", hash = "sha256:73af602ca2463f260999970c5bd937b1c4325e383686eff301743a4de08d381e", size = 69859, upload-time = "2023-07-02T12:43:31.968Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/f3/28ea87be30570f4d6b8fd24380d12fa74e59467ee003755e76aeb29082b8/ib_insync-0.9.86-py3-none-any.whl", hash = "sha256:a61fbe56ff405d93d211dad8238d7300de76dd6399eafc04c320470edec9a4a4", size = 72980, upload-time = "2023-07-02T12:43:29.928Z" },
 ]
 
 [[package]]

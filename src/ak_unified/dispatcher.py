@@ -163,6 +163,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             elif spec.adapter == "alphavantage":
                 from .adapters.alphavantage_adapter import call_alphavantage
                 fn_used, df = call_alphavantage(dataset_id, part_ak_params)
+            elif spec.adapter == "ibkr":
+                from .adapters.ibkr_adapter import call_ibkr
+                fn_used, df = call_ibkr(dataset_id, part_ak_params)
             else:
                 raise RuntimeError(f"Unknown adapter: {spec.adapter}")
             df = _postprocess(spec, df, part_params)
@@ -249,6 +252,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             elif spec.adapter == "alphavantage":
                 from .adapters.alphavantage_adapter import call_alphavantage
                 fn_used, df = call_alphavantage(dataset_id, part_ak_params)
+            elif spec.adapter == "ibkr":
+                from .adapters.ibkr_adapter import call_ibkr
+                fn_used, df = call_ibkr(dataset_id, part_ak_params)
             else:
                 raise RuntimeError(f"Unknown adapter: {spec.adapter}")
             df = _postprocess(spec, df, part_params)
@@ -298,6 +304,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     elif spec.adapter == "alphavantage":
         from .adapters.alphavantage_adapter import call_alphavantage
         fn_used, df = call_alphavantage(dataset_id, ak_params)
+    elif spec.adapter == "ibkr":
+        from .adapters.ibkr_adapter import call_ibkr
+        fn_used, df = call_ibkr(dataset_id, ak_params)
     else:
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 

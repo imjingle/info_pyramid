@@ -3955,3 +3955,126 @@ register(
         platform="cross",
     )
 )
+
+# IBKR adapter registrations (US/HK)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_daily.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_daily.ibkr",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "exchange": p.get("exchange", "SEHK"), "currency": p.get("currency", "HKD")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_min.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_min.ibkr",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end"), "freq": p.get("freq"), "exchange": p.get("exchange", "SEHK"), "currency": p.get("currency", "HKD")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.quote.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.quote.ibkr",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange", "SEHK"), "currency": p.get("currency", "HKD")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+# Fundamentals
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.overview.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.statements.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.ratios.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.fundamentals.snapshot.ibkr",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="ibkr",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "exchange": p.get("exchange"), "currency": p.get("currency")},
+        adapter="ibkr",
+        platform="cross",
+    )
+)
