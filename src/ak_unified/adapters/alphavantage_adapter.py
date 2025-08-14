@@ -105,6 +105,19 @@ def _parse_global_quote(obj: Dict[str, Any], symbol: str) -> pd.DataFrame:
     }])
 
 
+def _parse_series(obj: Dict[str, Any]) -> pd.DataFrame:
+    data = obj.get('data') if isinstance(obj, dict) else None
+    if not isinstance(data, list):
+        return pd.DataFrame([])
+    rows = []
+    for it in data:
+        rows.append({'date': it.get('date'), 'value': (None if it.get('value') in (None, '', 'NaN') else float(it.get('value')))})
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values('date')
+    return df
+
+
 def _parse_overview(obj: Dict[str, Any], symbol: str) -> pd.DataFrame:
     if not isinstance(obj, dict) or not obj:
         return pd.DataFrame([])
@@ -163,6 +176,27 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
         obj = _get({'function': func, 'symbol': symbol})
         df = _parse_global_quote(obj, symbol)
         return (func, df)
+    # Macro US series
+    if 'macro.us.cpi' in dataset_id:
+        func = 'CPI'
+        obj = _get({'function': func})
+        return (func, _parse_series(obj))
+    if 'macro.us.ppi' in dataset_id:
+        func = 'PPI'
+        obj = _get({'function': func})
+        return (func, _parse_series(obj))
+    if 'macro.us.pmi' in dataset_id:
+        func = 'PMI'
+        obj = _get({'function': func})
+        return (func, _parse_series(obj))
+    if 'macro.us.gdp' in dataset_id:
+        func = 'REAL_GDP'
+        obj = _get({'function': func})
+        return (func, _parse_series(obj))
+    if 'macro.us.unemployment' in dataset_id:
+        func = 'UNEMPLOYMENT'
+        obj = _get({'function': func})
+        return (func, _parse_series(obj))
     # Fundamentals - Overview
     if dataset_id.endswith('fundamentals.overview.av'):
         symbol = (params.get('symbol') or '').upper()

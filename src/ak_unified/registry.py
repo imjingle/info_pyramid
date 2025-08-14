@@ -4194,3 +4194,89 @@ def _compute_multi_source_ak(base_dataset_id: str, params: Dict[str, Any]) -> "p
     if not frames:
         return pd.DataFrame([])
     return pd.concat(frames, ignore_index=True)
+
+# Macro: US via Alpha Vantage (CPI/PPI/PMI/GDP/Unemployment)
+import pandas as _pd  # type: ignore
+
+def _macro_us_series_post(df: _pd.DataFrame, params: Dict[str, Any]) -> _pd.DataFrame:
+    indicator = params.get('indicator') or 'cpi'
+    name_map = {
+        'cpi': ('cpi', 'CPI'),
+        'ppi': ('ppi', 'PPI'),
+        'pmi': ('pmi', 'PMI'),
+        'gdp': ('gdp_real', 'Real GDP'),
+        'unemployment': ('unemployment', 'Unemployment Rate'),
+    }
+    iid, iname = name_map.get(indicator, (indicator, indicator.upper()))
+    out = _pd.DataFrame({
+        'region': 'US',
+        'indicator_id': iid,
+        'indicator_name': iname,
+        'date': df['date'] if 'date' in df.columns else df.iloc[:,0],
+        'value': _pd.to_numeric(df['value'] if 'value' in df.columns else df.iloc[:,1], errors='coerce'),
+        'unit': 'index' if indicator in {'cpi','ppi','pmi'} else ('pct' if indicator=='unemployment' else 'usd'),
+        'period': 'M',
+        'source': 'alphavantage',
+    })
+    return out.dropna(subset=['value'])
+
+register(
+    DatasetSpec(
+        dataset_id="macro.us.cpi",
+        category="macro",
+        domain="macro.us",
+        ak_functions=[],
+        source="alphavantage",
+        adapter="alphavantage",
+        param_transform=lambda p: {**p, 'indicator': 'cpi'},
+        postprocess=_macro_us_series_post,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="macro.us.ppi",
+        category="macro",
+        domain="macro.us",
+        ak_functions=[],
+        source="alphavantage",
+        adapter="alphavantage",
+        param_transform=lambda p: {**p, 'indicator': 'ppi'},
+        postprocess=_macro_us_series_post,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="macro.us.pmi",
+        category="macro",
+        domain="macro.us",
+        ak_functions=[],
+        source="alphavantage",
+        adapter="alphavantage",
+        param_transform=lambda p: {**p, 'indicator': 'pmi'},
+        postprocess=_macro_us_series_post,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="macro.us.gdp",
+        category="macro",
+        domain="macro.us",
+        ak_functions=[],
+        source="alphavantage",
+        adapter="alphavantage",
+        param_transform=lambda p: {**p, 'indicator': 'gdp'},
+        postprocess=_macro_us_series_post,
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="macro.us.unemployment",
+        category="macro",
+        domain="macro.us",
+        ak_functions=[],
+        source="alphavantage",
+        adapter="alphavantage",
+        param_transform=lambda p: {**p, 'indicator': 'unemployment'},
+        postprocess=_macro_us_series_post,
+    )
+)
