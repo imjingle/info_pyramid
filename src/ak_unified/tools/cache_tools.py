@@ -3,38 +3,62 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 from typing import Any, Dict, Optional
 
-from ..storage import get_pool, cache_stats, purge_records
+from ..storage import get_pool
 
 
-async def export_cache(output: str, dataset_prefix: Optional[str] = None) -> int:
+async def export_cache(output: str, dataset_prefix: Optional[str] = None, *, time_field: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, chunk_size: int = 5000) -> int:
     pool = await get_pool()
     if pool is None:
         raise RuntimeError("AKU_DB_DSN not configured")
-    # stream all rows optionally filtered by dataset prefix
-    async with pool.acquire() as conn:
-        if dataset_prefix:
-            sql = "select dataset_id, record from aku_cache where dataset_id like $1 order by dataset_id"
-            stmt = await conn.prepare(sql)
-            rows = await stmt.fetch(dataset_prefix + '%')
-        else:
-            rows = await conn.fetch("select dataset_id, record from aku_cache order by dataset_id")
+    where = []
+    args = []
+    if dataset_prefix:
+        where.append("dataset_id like $1")
+        args.append(dataset_prefix + '%')
+    if time_field in ("date", "datetime") and start:
+        where.append(f"{time_field} >= ${len(args)+1}")
+        args.append(start)
+    if time_field in ("date", "datetime") and end:
+        where.append(f"{time_field} <= ${len(args)+1}")
+        args.append(end)
+    where_sql = (" where " + " and ".join(where)) if where else ""
+    sql = f"select dataset_id, record from aku_cache{where_sql} order by dataset_id"
     count = 0
-    with open(output, 'w', encoding='utf-8') as f:
-        for ds, rec in rows:
-            obj = rec if isinstance(rec, dict) else json.loads(rec)
-            f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
-            count += 1
+    async with pool.acquire() as conn:
+        # asyncpg cursor streaming
+        try:
+            cur = await conn.cursor(sql, *args)
+            with open(output, 'w', encoding='utf-8') as f:
+                while True:
+                    rows = await cur.fetch(chunk_size)
+                    if not rows:
+                        break
+                    for ds, rec in rows:
+                        obj = rec if isinstance(rec, dict) else json.loads(rec)
+                        f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
+                        count += 1
+        except AttributeError:
+            # fallback to manual paging
+            offset = 0
+            with open(output, 'w', encoding='utf-8') as f:
+                while True:
+                    rows = await conn.fetch(sql + f" limit {chunk_size} offset {offset}", *args)
+                    if not rows:
+                        break
+                    for ds, rec in rows:
+                        obj = rec if isinstance(rec, dict) else json.loads(rec)
+                        f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
+                        count += 1
+                    offset += chunk_size
     return count
 
 
-async def import_cache(input_path: str, dataset_prefix: Optional[str] = None) -> int:
+async def import_cache(input_path: str, dataset_prefix: Optional[str] = None, *, batch_size: int = 1000) -> int:
     pool = await get_pool()
     if pool is None:
         raise RuntimeError("AKU_DB_DSN not configured")
-    # read NDJSON and upsert per batch
     from ..storage import upsert_records as upsert
     batch: Dict[str, list] = {}
     total = 0
@@ -53,7 +77,7 @@ async def import_cache(input_path: str, dataset_prefix: Optional[str] = None) ->
                     continue
                 batch.setdefault(ds, []).append(rec)
                 total += 1
-                if sum(len(v) for v in batch.values()) >= 1000:
+                if sum(len(v) for v in batch.values()) >= batch_size:
                     for ds_id, recs in batch.items():
                         await upsert(pool, ds_id, recs)
                     batch.clear()
@@ -71,16 +95,22 @@ def main():
     p_exp = sub.add_parser('export', help='Export cache to NDJSON')
     p_exp.add_argument('-o', '--output', required=True, help='Output file path')
     p_exp.add_argument('--dataset-prefix', default=None, help='Filter dataset_id by prefix')
+    p_exp.add_argument('--time-field', default=None, choices=['date','datetime'], help='Filter by time field')
+    p_exp.add_argument('--start', default=None, help='Start bound for time field')
+    p_exp.add_argument('--end', default=None, help='End bound for time field')
+    p_exp.add_argument('--chunk-size', type=int, default=5000, help='Export chunk size')
+
     p_imp = sub.add_parser('import', help='Import cache from NDJSON')
     p_imp.add_argument('-i', '--input', required=True, help='Input NDJSON file')
     p_imp.add_argument('--dataset-prefix', default=None, help='Filter dataset_id by prefix while importing')
+    p_imp.add_argument('--batch-size', type=int, default=1000, help='Upsert batch size')
 
     args = parser.parse_args()
     if args.cmd == 'export':
-        cnt = asyncio.run(export_cache(args.output, args.dataset_prefix))
+        cnt = asyncio.run(export_cache(args.output, args.dataset_prefix, time_field=args.time_field, start=args.start, end=args.end, chunk_size=args.chunk_size))
         print(f"exported {cnt} rows")
     elif args.cmd == 'import':
-        cnt = asyncio.run(import_cache(args.input, args.dataset_prefix))
+        cnt = asyncio.run(import_cache(args.input, args.dataset_prefix, batch_size=args.batch_size))
         print(f"imported {cnt} rows")
 
 
