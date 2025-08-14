@@ -5029,3 +5029,69 @@ def _post_news_sentiment(df: __pd.DataFrame, params: Dict[str, Any]) -> __pd.Dat
     if 'news_count' in out.columns:
         out['news_count'] = __pd.to_numeric(out['news_count'], errors='coerce')
     return out
+
+# Computed: index spot multi-source (EM + Sina)
+register(
+    DatasetSpec(
+        dataset_id="market.index.cn.spot.multi",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=[],
+        source="computed",
+        adapter="computed",
+        param_transform=lambda p: p,
+        compute=lambda p: _compute_multi_source_ak('market.index.cn.spot', p),
+    )
+)
+
+def _normalize_index_cons(df: _pd.DataFrame) -> _pd.DataFrame:
+    if df is None or df.empty:
+        return _pd.DataFrame([])
+    out = df.copy()
+    rename_map = {
+        '成分券代码': 'symbol', '证券代码': 'symbol', '代码': 'symbol',
+        '证券简称': 'name', '名称': 'name',
+        '指数代码': 'index_code', '指数名称': 'index_name',
+        '权重(%)': 'weight_pct', '权重': 'weight_pct', 'weight': 'weight_pct',
+    }
+    out = out.rename(columns={k: v for k, v in rename_map.items() if k in out.columns})
+    if 'weight_pct' in out.columns:
+        out['weight_pct'] = _pd.to_numeric(out['weight_pct'], errors='coerce')
+    if 'symbol' in out.columns:
+        out['symbol'] = out['symbol'].astype(str)
+    return out[['index_code','symbol','name','weight_pct']].dropna(how='all', axis=1, inplace=False) if any(c in out.columns for c in ['index_code','symbol','name','weight_pct']) else out
+
+def _compute_index_constituents_multi(params: Dict[str, Any]) -> _pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    idx = params.get('index_code') or params.get('symbol')
+    if not idx:
+        return _pd.DataFrame([])
+    frames: list[_pd.DataFrame] = []
+    for ds in ['market.index.constituents', 'market.index.constituents.csindex', 'market.index.cni.detail']:
+        try:
+            env = _fetch(ds, {'index_code': idx, 'symbol': idx})
+            frames.append(_normalize_index_cons(_pd.DataFrame(env.data)))
+        except Exception:
+            continue
+    if not frames:
+        return _pd.DataFrame([])
+    cat = _pd.concat(frames, ignore_index=True)
+    if cat.empty:
+        return cat
+    # de-dup by symbol; keep max weight if multiple
+    if 'symbol' in cat.columns:
+        cat = cat.sort_values(by=['weight_pct'], ascending=False, na_position='last').drop_duplicates(subset=['symbol'])
+    return cat.reset_index(drop=True)
+
+register(
+    DatasetSpec(
+        dataset_id="market.index.constituents.multi",
+        category="market",
+        domain="market.index.cn",
+        ak_functions=[],
+        source="computed",
+        adapter="computed",
+        param_transform=lambda p: p,
+        compute=_compute_index_constituents_multi,
+    )
+)
