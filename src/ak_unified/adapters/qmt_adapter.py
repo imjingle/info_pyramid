@@ -13,8 +13,12 @@ class QmtAdapterError(RuntimeError):
     pass
 
 
+def is_windows() -> bool:
+    return platform.system().lower() == 'windows'
+
+
 def _ensure_windows() -> None:
-    if platform.system().lower() != 'windows':
+    if not is_windows():
         raise QmtAdapterError(
             "QMT adapter is Windows-only. Please run on Windows with QMT/ThinkTrader client and native API installed."
         )
@@ -36,7 +40,6 @@ def _import_qmt_module() -> Any:
 
 
 def _get_mapping() -> Dict[str, str]:
-    # Function name mapping; can be overridden by AKU_QMT_CONFIG pointing to YAML/JSON
     default = {
         'ohlcv_daily': 'get_kline_daily',
         'ohlcv_min': 'get_kline_min',
@@ -64,6 +67,21 @@ def _get_mapping() -> Dict[str, str]:
     return default
 
 
+def get_qmt_mapping() -> Dict[str, str]:
+    return _get_mapping()
+
+
+def test_qmt_import() -> Dict[str, Any]:
+    try:
+        _ensure_windows()
+        mod = _import_qmt_module()
+        mapping = _get_mapping()
+        avail = {k: hasattr(mod, v) for k, v in mapping.items()}
+        return {"ok": True, "module": mod.__name__, "mapping": mapping, "available": avail}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e), "is_windows": is_windows()}
+
+
 def _to_dataframe(obj: Any) -> pd.DataFrame:
     if isinstance(obj, pd.DataFrame):
         return obj
@@ -86,7 +104,6 @@ def call_qmt(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame
             raise QmtAdapterError(f"QMT function not found: {fn_name}")
         df = _to_dataframe(fn(symbol=params.get('symbol'), start=params.get('start'), end=params.get('end')))
         if not df.empty:
-            # normalize columns
             rename = {'日期': 'date', '时间': 'datetime', '开盘': 'open', '最高': 'high', '最低': 'low', '收盘': 'close', '成交量': 'volume', '成交额': 'amount'}
             df = df.rename(columns={**rename, **{c: c for c in df.columns}})
             if 'symbol' not in df.columns and params.get('symbol'):
