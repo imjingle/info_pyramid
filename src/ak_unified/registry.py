@@ -3417,6 +3417,36 @@ def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
         s = _pd.to_numeric(series, errors='coerce')
         return s.pct_change()
 
+    def enrich_series(df: _pd.DataFrame, time_col: str) -> List[Dict[str, Any]]:
+        close = _pd.to_numeric(df.get('close'), errors='coerce')
+        ret = close.pct_change()
+        roll = ret.rolling(window_n, min_periods=max(1, window_n//2)).mean()
+        vol = ret.rolling(window_n, min_periods=max(2, window_n//2)).std()
+        amt = _pd.to_numeric(df.get('amount'), errors='coerce') if 'amount' in df.columns else None
+        amt_pct = None
+        if amt is not None:
+            rank = amt.rank(pct=True)
+            amt_pct = rank
+        out = []
+        for i in range(len(df)):
+            ts = str(df[time_col].iloc[i])
+            r = float(ret.iloc[i]) if ret.iloc[i] == ret.iloc[i] else None
+            rv = float(roll.iloc[i]) if roll.iloc[i] == roll.iloc[i] else None
+            vv = float(vol.iloc[i]) if vol.iloc[i] == vol.iloc[i] else None
+            aa = float(amt.iloc[i]) if (amt is not None and amt.iloc[i] == amt.iloc[i]) else None
+            ap = float(amt_pct.iloc[i]) if (amt_pct is not None and amt_pct.iloc[i] == amt_pct.iloc[i]) else None
+            cc = float(close.iloc[i]) if close.iloc[i] == close.iloc[i] else None
+            out.append({
+                "ts": ts,
+                "pct_change": r,
+                "rolling_avg": rv,
+                "volatility_roll": vv,
+                "close": cc,
+                "amount": aa,
+                "amount_percentile": ap,
+            })
+        return out
+
     if entity_type == 'index':
         for idx in ids:
             try:
@@ -3424,23 +3454,15 @@ def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
                 env = _fetch("market.index.ohlcva", {"symbol": code})
                 df = _pd.DataFrame(env.data)
                 if not df.empty and 'date' in df.columns:
-                    # filter window
                     if start:
                         df = df[df['date'] >= start]
                     if end:
                         df = df[df['date'] <= end]
-                    df = df.sort_values('date')
-                    ret = safe_pct_change(df['close'])
-                    roll = ret.rolling(window_n, min_periods=max(1, window_n//2)).mean()
-                    series = [
-                        {
-                            "ts": str(d),
-                            "pct_change": float(r) if r == r else None,
-                            "rolling_avg": float(rv) if rv == rv else None,
-                            "close": float(c) if c == c else None,
-                        }
-                        for d, r, rv, c in zip(df['date'], ret.fillna(_np.nan), roll.fillna(_np.nan), _pd.to_numeric(df['close'], errors='coerce'))
-                    ]
+                    if not df.empty:
+                        df = df.sort_values('date')
+                        series = enrich_series(df, 'date')
+                    else:
+                        series = []
                 else:
                     series = []
                 rows.append({"entity_type": "index", "id": idx, "series": series})
@@ -3458,27 +3480,20 @@ def _compute_board_index_playback(params: Dict[str, Any]) -> pd.DataFrame:
                 if not df.empty:
                     break
             if not df.empty and 'datetime' in df.columns:
-                df = df.sort_values('datetime')
                 if start:
                     df = df[df['datetime'] >= start]
                 if end:
                     df = df[df['datetime'] <= end]
-                ret = safe_pct_change(df['close'])
-                roll = ret.rolling(window_n, min_periods=max(1, window_n//2)).mean()
-                series = [
-                    {
-                        "ts": str(ts),
-                        "pct_change": float(r) if r == r else None,
-                        "rolling_avg": float(rv) if rv == rv else None,
-                        "close": float(c) if c == c else None,
-                    }
-                    for ts, r, rv, c in zip(df['datetime'], ret.fillna(_np.nan), roll.fillna(_np.nan), _pd.to_numeric(df['close'], errors='coerce'))
-                ]
+                if not df.empty:
+                    df = df.sort_values('datetime')
+                    series = enrich_series(df, 'datetime')
+                else:
+                    series = []
             else:
                 series = []
             rows.append({"entity_type": "board", "id": board, "series": series, "freq": freq})
         except Exception as e:
-            rows.append({"entity_type": "board", "id": board, "error": str(e)})
+            rows.append({"entity_type": "board", "id": board, "series": [], "error": str(e)})
 
     return _pd.DataFrame(rows)
 
