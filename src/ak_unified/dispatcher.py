@@ -160,6 +160,85 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         env.data_source = spec.source
         return env
 
+    # minute-level gap fill for datetime-based datasets
+    new_records = []
+    if pool is not None and not is_realtime and time_field == 'datetime' and start and end and cached:
+        try:
+            freq = str(params.get('freq') or 'min5').lower()
+            # normalize minutes step
+            if freq.startswith('min'):
+                step_min = int(freq.replace('min','') or '5')
+            else:
+                step_min = int(freq)
+        except Exception:
+            step_min = 5
+        try:
+            cdf = _pd.DataFrame(cached)
+            cdf = cdf.sort_values('datetime')
+            dt_cached = _pd.to_datetime(cdf['datetime'])
+            start_dt = _pd.to_datetime(start)
+            end_dt = _pd.to_datetime(end)
+            gaps: List[Tuple[str, str]] = []
+            # before first
+            if len(dt_cached) == 0 or dt_cached.iloc[0] > start_dt:
+                gaps.append((start_dt.isoformat(), (dt_cached.iloc[0] - _pd.Timedelta(minutes=step_min)).isoformat() if len(dt_cached) else end_dt.isoformat()))
+            # internal gaps
+            for i in range(1, len(dt_cached)):
+                prev = dt_cached.iloc[i-1]
+                cur = dt_cached.iloc[i]
+                if (cur - prev) > _pd.Timedelta(minutes=step_min):
+                    s1 = prev + _pd.Timedelta(minutes=step_min)
+                    e1 = cur - _pd.Timedelta(minutes=step_min)
+                    if s1 <= e1:
+                        gaps.append((s1.isoformat(), e1.isoformat()))
+            # after last
+            if len(dt_cached) and dt_cached.iloc[-1] < end_dt:
+                s2 = dt_cached.iloc[-1] + _pd.Timedelta(minutes=step_min)
+                gaps.append((s2.isoformat(), end_dt.isoformat()))
+        except Exception:
+            gaps = [(start, end)]
+        # fetch each gap
+        for s1, e1 in gaps:
+            part_params = dict(params)
+            part_params['start'] = s1
+            part_params['end'] = e1
+            part_ak_params = _apply_param_transform(spec, part_params)
+            if spec.adapter == "akshare":
+                fn_used, df = call_akshare(spec.ak_functions, part_ak_params, field_mapping=spec.field_mapping, allow_fallback=allow_fallback, function_name=ak_function)
+            elif spec.adapter == "baostock":
+                from .adapters.baostock_adapter import call_baostock
+                fn_used, df = call_baostock(dataset_id, part_ak_params)
+            elif spec.adapter == "mootdx":
+                from .adapters.mootdx_adapter import call_mootdx
+                fn_used, df = call_mootdx(dataset_id, part_ak_params)
+            elif spec.adapter == "qmt":
+                from .adapters.qmt_adapter import call_qmt
+                fn_used, df = call_qmt(dataset_id, part_ak_params)
+            elif spec.adapter == "efinance":
+                from .adapters.efinance_adapter import call_efinance
+                fn_used, df = call_efinance(dataset_id, part_ak_params)
+            elif spec.adapter == "qstock":
+                from .adapters.qstock_adapter import call_qstock
+                fn_used, df = call_qstock(dataset_id, part_ak_params)
+            elif spec.adapter == "adata":
+                from .adapters.adata_adapter import call_adata
+                fn_used, df = call_adata(dataset_id, part_ak_params)
+            else:
+                raise RuntimeError(f"Unknown adapter: {spec.adapter}")
+            df = _postprocess(spec, df, part_params)
+            part_records = df.to_dict(orient="records")
+            new_records.extend(part_records)
+        records = cached + new_records
+        if new_records:
+            try:
+                loop.run_until_complete(_db_upsert(pool, dataset_id, new_records))
+            except Exception:
+                pass
+        env = _envelope(spec, params, records)
+        env.ak_function = 'cache+source'
+        env.data_source = spec.source
+        return env
+
     # no cache or not eligible for gap fill: single fetch
     if spec.adapter == "akshare":
         fn_used, df = call_akshare(
