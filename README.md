@@ -65,12 +65,24 @@ SSE topics:
 ## Postgres caching (asyncpg)
 - 设置 `AKU_DB_DSN` 启用；可选 TTL：`AKU_CACHE_TTL_SECONDS` 或 `AKU_CACHE_TTL_PER_DATASET`
 - 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
+- 行级缓存表：`aku_cache`（JSON，便于按字段查询与缺口补拉）
+- 请求级缓存表：`aku_cache_blob`（pickle 二进制，保留原始数据结构与类型；可选 zlib 压缩，设 `AKU_BLOB_COMPRESS=1`）
+
+Replay & manage:
+- 回放：`/rpc/replay?dataset_id=...&params=...`（命中则返回原始 raw 与元数据 ak_function/adapter/timezone）
+- 读取：`/admin/cache/blob?dataset_id=...&params=...`
+- 清理：`/admin/cache/blob/purge?dataset_id=...` 或按 `dataset_prefix` 与 `updated_after/updated_before`
 
 Export/Import cache:
 ```bash
+# 行级（NDJSON）
 uv run python -m ak_unified.tools.cache_tools export -o cache.ndjson --dataset-prefix market.index --time-field date --start 2024-01-01 --end 2024-06-30 \
   --rename-map-json '{"收盘":"close"}' --keep-fields symbol,date,open,high,low,close,volume,amount
 uv run python -m ak_unified.tools.cache_tools import -i cache.ndjson --drop-fields pct_change,turnover_rate
+
+# 请求级 blob（NDJSON, raw_data base64）
+uv run python -m ak_unified.tools.blob_tools export -o blobs.ndjson --dataset-prefix market.index --updated-after 2025-08-01
+uv run python -m ak_unified.tools.blob_tools import -i blobs.ndjson
 ```
 
 ## Testing
