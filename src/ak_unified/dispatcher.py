@@ -282,6 +282,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
 
     # no cache or not eligible for gap fill: single fetch
     if spec.adapter == "akshare":
+        from .adapters.akshare_adapter import ak_function_vendor
         fn_used, df = call_akshare(
             spec.ak_functions,
             ak_params,
@@ -289,6 +290,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             allow_fallback=allow_fallback,
             function_name=ak_function,
         )
+        vendor = ak_function_vendor(fn_used)
     elif spec.adapter == "baostock":
         from .adapters.baostock_adapter import call_baostock
         fn_used, df = call_baostock(dataset_id, ak_params)
@@ -320,34 +322,32 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
     logger.bind(dataset=dataset_id, adapter=spec.adapter, fn=fn_used).info("fetched upstream")
     df = _postprocess(spec, df, params)
-    raw_records = df.to_dict(orient="records")
-    records = apply_and_validate(dataset_id, raw_records)
-
-    # merge with cache and upsert
-    if pool is not None and records and not is_realtime:
+    records = df.to_dict(orient="records")
+    # annotate vendor for akshare to support later fusion
+    if spec.adapter == "akshare":
         try:
-            # naive merge by row_key uniqueness is handled in upsert
-            loop.run_until_complete(_db_upsert(pool, dataset_id, records))
-            # store request-level blob for exact replay (pickle)
-            if store_blob:
-                try:
-                    loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, ak_function=fn_used, adapter=spec.adapter, timezone=DEFAULT_TIMEZONE, raw_obj=raw_records))
-                    logger.bind(dataset=dataset_id).info("blob stored")
-                except Exception:
-                    logger.bind(dataset=dataset_id).warning("blob store failed")
-                    pass
-            if cached:
-                # return union (cached + fresh unique)
-                # simple de-dup by (symbol/index_symbol/board_code,time)
-                def key(r: Dict[str, Any]):
-                    return (r.get('symbol') or r.get('index_symbol') or r.get('board_code'), r.get('date') or r.get('datetime'))
-                merged = {key(r): r for r in cached}
+            v = vendor if 'vendor' not in df.columns else None
+            if v:
                 for r in records:
-                    merged[key(r)] = r
-                records = list(merged.values())
+                    r['vendor'] = v
         except Exception:
             pass
-
+    # store blob
+    if pool is not None and store_blob and not is_realtime:
+        try:
+            loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, records, spec.adapter or 'unknown', fn_used))
+            logger.bind(dataset=dataset_id).info("blob stored")
+        except Exception:
+            logger.bind(dataset=dataset_id).warning("blob store failed")
+            pass
+    # upsert rows
+    if pool is not None and use_cache and not is_realtime and records:
+        try:
+            loop.run_until_complete(_db_upsert(pool, dataset_id, records))
+            logger.bind(dataset=dataset_id).info("row cache upserted",)
+        except Exception:
+            logger.bind(dataset=dataset_id).warning("row upsert failed")
+            pass
     env = _envelope(spec, params, records)
     env.ak_function = fn_used
     env.data_source = spec.source

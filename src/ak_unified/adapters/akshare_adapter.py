@@ -51,6 +51,29 @@ def _call_single(ak_module, fn_name: str, params: Dict[str, Any]) -> pd.DataFram
     return data.copy() if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
 
 
+def ak_function_vendor(fn_name: str) -> str:
+    name = fn_name.lower()
+    if name.endswith('_em') or 'eastmoney' in name:
+        return 'eastmoney'
+    if name.endswith('_sina') or 'sina' in name:
+        return 'sina'
+    if name.endswith('_tx') or 'tencent' in name or name.endswith('_qq'):
+        return 'tencent'
+    if 'ths' in name or name.endswith('_ths'):
+        return 'ths'
+    if 'tdx' in name:
+        return 'tdx'
+    if 'baidu' in name:
+        return 'baidu'
+    if 'netease' in name or '163' in name:
+        return 'netease'
+    if 'hexun' in name:
+        return 'hexun'
+    if 'csindex' in name:
+        return 'csindex'
+    return 'unknown'
+
+
 def call_akshare(
     ak_functions: List[str],
     params: Dict[str, Any],
