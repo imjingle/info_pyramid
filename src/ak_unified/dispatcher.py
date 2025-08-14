@@ -8,7 +8,7 @@ import pandas as _pd
 from .schemas.envelope import DataEnvelope, Pagination
 from .registry import REGISTRY, DatasetSpec
 from .adapters.akshare_adapter import call_akshare
-from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert, upsert_blob_snapshot as _db_upsert_blob
+from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert, upsert_blob_snapshot as _db_upsert_blob, fetch_blob_snapshot as _db_fetch_blob
 import asyncio
 from .normalization import apply_and_validate
 
@@ -49,7 +49,7 @@ def _envelope(
     )
 
 
-def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True) -> DataEnvelope:
+def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True, use_blob: bool = True) -> DataEnvelope:
     spec = _resolve_spec(dataset_id)
     params = params or {}
 
@@ -74,6 +74,19 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     board_code = params.get("board_code") or (params.get("symbol") if "board" in dataset_id else None)
     start = params.get("start")
     end = params.get("end")
+    # exact request-level blob cache (before upstream) if enabled and not realtime
+    if pool is not None and use_blob and not is_realtime:
+        try:
+            res = loop.run_until_complete(_db_fetch_blob(pool, dataset_id, params))
+            if res is not None:
+                raw_records, meta = res
+                records = apply_and_validate(dataset_id, raw_records)
+                env = _envelope(spec, params, records)
+                env.ak_function = meta.get("ak_function") or 'cache-blob'
+                env.data_source = meta.get("adapter") or 'postgresql-blob'
+                return env
+        except Exception:
+            pass
     if pool is not None and not is_realtime:
         cached = loop.run_until_complete(_db_fetch(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field))
         # If fully covered by cache for date-based datasets, return immediately from cache
