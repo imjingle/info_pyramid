@@ -148,3 +148,31 @@ def _normalize_one(rec: Dict[str, Any], rule: Optional[NormalizationRule]) -> Di
 def apply_normalization(dataset_id: str, records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     rule = _select_rule(dataset_id)
     return [_normalize_one(r, rule) for r in records]
+
+
+def is_valid_record(dataset_id: str, rec: Dict[str, Any]) -> bool:
+    # minimal validation rules by prefix
+    ds = dataset_id
+    # time series datasets: require time key and identifier
+    if ds.endswith('ohlcva_min') or 'ohlcv_min' in ds:
+        return (('symbol' in rec or 'index_symbol' in rec or 'board_code' in rec) and ('datetime' in rec))
+    if 'ohlcva' in ds or 'ohlcv' in ds:
+        return (('symbol' in rec or 'index_symbol' in rec or 'board_code' in rec) and ('date' in rec))
+    if ds.endswith('quote'):
+        return ('symbol' in rec)
+    if 'constituents' in ds:
+        return ('symbol' in rec and ('index_symbol' in rec or 'board_code' in rec))
+    if 'fund' in ds and 'nav' in ds:
+        return ('fund_code' in rec and 'nav_date' in rec)
+    # default: accept
+    return True
+
+
+def apply_and_validate(dataset_id: str, records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rule = _select_rule(dataset_id)
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        nr = _normalize_one(r, rule)
+        if is_valid_record(dataset_id, nr):
+            out.append(nr)
+    return out
