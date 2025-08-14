@@ -4361,3 +4361,81 @@ register(
         postprocess=_macro_hk_building_amount_post,
     )
 )
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.retail_sales",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='retail_sales', indicator_name='Retail Sales', unit='HKD_billion', period='M'),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.tourism.visitors",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='tourism_visitors', indicator_name='Tourism Visitors', unit='persons', period='M'),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.money_supply",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='money_supply', indicator_name='Money Supply', unit='HKD_billion', period='M'),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.trade.balance",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='trade_balance', indicator_name='Trade Balance', unit='HKD_billion', period='M'),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.trade.imports",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='trade_imports', indicator_name='Imports', unit='HKD_billion', period='M'),
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.trade.exports",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=[],
+        source="akshare",
+        adapter="akshare",
+        param_transform=_noop_params,
+        postprocess=lambda df, p: _macro_hk_series_post(df, p, indicator_id='trade_exports', indicator_name='Exports', unit='HKD_billion', period='M'),
+    )
+)
