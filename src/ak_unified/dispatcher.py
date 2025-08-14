@@ -49,7 +49,7 @@ def _envelope(
     )
 
 
-def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True, use_blob: bool = True) -> DataEnvelope:
+def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False, use_cache: bool = True, use_blob: bool = True, store_blob: bool = True) -> DataEnvelope:
     spec = _resolve_spec(dataset_id)
     params = params or {}
 
@@ -65,7 +65,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     # try cache first (only for non-realtime datasets)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    pool = loop.run_until_complete(get_pool()) if use_cache else None
+    pool = loop.run_until_complete(get_pool()) if (use_cache or use_blob or store_blob) else None
     cached: List[Dict[str, Any]] = []
     is_realtime = 'quote' in dataset_id
     time_field = "datetime" if ("ohlcv_min" in dataset_id or dataset_id.endswith(".ohlcva_min")) else "date"
@@ -293,10 +293,11 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             # naive merge by row_key uniqueness is handled in upsert
             loop.run_until_complete(_db_upsert(pool, dataset_id, records))
             # store request-level blob for exact replay (pickle)
-            try:
-                loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, ak_function=fn_used, adapter=spec.adapter, timezone=DEFAULT_TIMEZONE, raw_obj=raw_records))
-            except Exception:
-                pass
+            if store_blob:
+                try:
+                    loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, ak_function=fn_used, adapter=spec.adapter, timezone=DEFAULT_TIMEZONE, raw_obj=raw_records))
+                except Exception:
+                    pass
             if cached:
                 # return union (cached + fresh unique)
                 # simple de-dup by (symbol/index_symbol/board_code,time)
