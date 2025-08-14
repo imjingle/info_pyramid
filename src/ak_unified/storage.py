@@ -15,7 +15,35 @@ def _dsn() -> Optional[str]:
     return os.environ.get("AKU_DB_DSN")
 
 
-def _ttl_seconds() -> Optional[int]:
+def _parse_ttl_map() -> Dict[str, int]:
+    raw = os.environ.get("AKU_CACHE_TTL_PER_DATASET")
+    if not raw:
+        return {}
+    try:
+        m = json.loads(raw)
+        if isinstance(m, dict):
+            out: Dict[str, int] = {}
+            for k, v in m.items():
+                try:
+                    out[str(k)] = int(v)
+                except Exception:
+                    continue
+            return out
+    except Exception:
+        return {}
+    return {}
+
+
+def _ttl_seconds(dataset_id: Optional[str] = None) -> Optional[int]:
+    # per-dataset override (longest prefix match)
+    ttl_map = _parse_ttl_map()
+    if dataset_id and ttl_map:
+        best_key = None
+        for k in ttl_map.keys():
+            if dataset_id.startswith(k) and (best_key is None or len(k) > len(best_key)):
+                best_key = k
+        if best_key is not None:
+            return ttl_map.get(best_key)
     v = os.environ.get("AKU_CACHE_TTL_SECONDS")
     try:
         return int(v) if v else None
@@ -127,7 +155,7 @@ async def fetch_records(
         where.append(f"{time_field} <= ${i}")
         args.append(end)
         i += 1
-    ttl = _ttl_seconds()
+    ttl = _ttl_seconds(dataset_id)
     if ttl and ttl > 0:
         where.append(f"updated_at >= now() - interval '{ttl} seconds'")
     sql = f"select record from aku_cache where {' and '.join(where)} order by {time_field if time_field else 'updated_at'} asc"
