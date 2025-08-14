@@ -3138,66 +3138,66 @@ register(
         platform="cross",
     )
 )
-+register(
-+    DatasetSpec(
-+        dataset_id="securities.board.cn.industry.list.adata",
-+        category="securities",
-+        domain="securities.board.cn",
-+        ak_functions=[],
-+        source="adata",
-+        param_transform=_noop_params,
-+        adapter="adata",
-+        platform="cross",
-+    )
-+)
-+register(
-+    DatasetSpec(
-+        dataset_id="securities.board.cn.concept.list.adata",
-+        category="securities",
-+        domain="securities.board.cn",
-+        ak_functions=[],
-+        source="adata",
-+        param_transform=_noop_params,
-+        adapter="adata",
-+        platform="cross",
-+    )
-+)
-+register(
-+    DatasetSpec(
-+        dataset_id="securities.board.cn.industry.cons.adata",
-+        category="securities",
-+        domain="securities.board.cn",
-+        ak_functions=[],
-+        source="adata",
-+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
-+        adapter="adata",
-+        platform="cross",
-+    )
-+)
-+register(
-+    DatasetSpec(
-+        dataset_id="securities.board.cn.concept.cons.adata",
-+        category="securities",
-+        domain="securities.board.cn",
-+        ak_functions=[],
-+        source="adata",
-+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
-+        adapter="adata",
-+        platform="cross",
-+    )
-+)
-+register(
-+    DatasetSpec(
-+        dataset_id="securities.equity.cn.announcements.adata",
-+        category="securities",
-+        domain="securities.equity.cn",
-+        ak_functions=[],
-+        source="adata",
-+        param_transform=lambda p: {"symbol": p.get("symbol")},
-+        adapter="adata",
-+        platform="cross",
-+    )
-+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.list.adata",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=_noop_params,
+        adapter="adata",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.list.adata",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=_noop_params,
+        adapter="adata",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.industry.cons.adata",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="adata",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.concept.cons.adata",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=lambda p: {"board_code": p.get("board_code") or p.get("symbol")},
+        adapter="adata",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.cn.announcements.adata",
+        category="securities",
+        domain="securities.equity.cn",
+        ak_functions=[],
+        source="adata",
+        param_transform=lambda p: {"symbol": p.get("symbol")},
+        adapter="adata",
+        platform="cross",
+    )
+)
 
 # efinance extras
 register(
