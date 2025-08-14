@@ -4,6 +4,7 @@ import importlib
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from ..logging import logger
 
 
 class AkAdapterError(RuntimeError):
@@ -71,6 +72,9 @@ def ak_function_vendor(fn_name: str) -> str:
         return 'hexun'
     if 'csindex' in name:
         return 'csindex'
+    if 'jsl' in name or 'jisilu' in name:
+        return 'jisilu'
+    logger.warning(f"ak_function_vendor: unknown vendor for function: {fn_name}")
     return 'unknown'
 
 
