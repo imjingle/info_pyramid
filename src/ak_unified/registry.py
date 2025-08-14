@@ -5108,6 +5108,97 @@ register(
 	)
 )
 
+def _load_region_mapping() -> Dict[str, List[str]]:
+    import os, json
+    raw = os.environ.get('AKU_REGION_MAPPING')
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return {str(k): [str(x) for x in v] for k, v in data.items() if isinstance(v, list)}
+    except Exception:
+        return {}
+
+def _compute_region_cons(params: Dict[str, Any]) -> _pd.DataFrame:
+    mapping = _load_region_mapping()
+    regions = params.get('regions') or params.get('boards') or []
+    if isinstance(regions, str):
+        regions = [regions]
+    rows: list[dict] = []
+    for r in regions or []:
+        syms = mapping.get(str(r)) or []
+        for s in syms:
+            rows.append({'region': r, 'symbol': s})
+    return _pd.DataFrame(rows)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.region.cons",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="computed",
+        adapter="computed",
+        param_transform=lambda p: p,
+        compute=_compute_region_cons,
+    )
+)
+
+def _compute_region_hist(params: Dict[str, Any]) -> _pd.DataFrame:
+    from .dispatcher import fetch_data as _fetch
+    region = params.get('region') or params.get('board')
+    if not region:
+        return _pd.DataFrame([])
+    mapping = _load_region_mapping()
+    symbols = mapping.get(str(region)) or []
+    if not symbols:
+        return _pd.DataFrame([])
+    start = params.get('start')
+    end = params.get('end')
+    weight_by = (params.get('weight_by') or 'equal').lower()
+    frames: list[_pd.DataFrame] = []
+    for s in symbols:
+        try:
+            env = _fetch('securities.equity.cn.ohlcva_daily', {'symbol': s, 'start': start, 'end': end})
+            df = _pd.DataFrame(env.data)
+            if not df.empty and 'date' in df.columns:
+                df = df[['date','close','volume','amount']].copy()
+                df['symbol'] = s
+                frames.append(df)
+        except Exception:
+            continue
+    if not frames:
+        return _pd.DataFrame([])
+    all_df = _pd.concat(frames, ignore_index=True)
+    if all_df.empty:
+        return all_df
+    if weight_by == 'amount' and 'amount' in all_df.columns:
+        # weighted average close by amount
+        grp = all_df.groupby('date', as_index=False).apply(lambda g: _pd.Series({
+            'close': (g['close']*g['amount']).sum() / g['amount'].replace(0, _pd.NA).sum() if g['amount'].sum() else g['close'].mean(),
+            'volume': g['volume'].sum(),
+            'amount': g['amount'].sum(),
+        }))
+        out = grp.reset_index().drop(columns=['level_0'], errors='ignore') if 'level_0' in grp.index.names else grp.reset_index(drop=True)
+    else:
+        grp2 = all_df.groupby('date', as_index=False).agg({'close':'mean','volume':'sum','amount':'sum'})
+        out = grp2
+    out['region'] = region
+    return out.sort_values('date').reset_index(drop=True)
+
+register(
+    DatasetSpec(
+        dataset_id="securities.board.cn.region.hist",
+        category="securities",
+        domain="securities.board.cn",
+        ak_functions=[],
+        source="computed",
+        adapter="computed",
+        param_transform=lambda p: p,
+        compute=_compute_region_hist,
+    )
+)
+
 # HSGT region board ranks
 register(
 	DatasetSpec(
