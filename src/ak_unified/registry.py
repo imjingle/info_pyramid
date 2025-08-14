@@ -4280,3 +4280,84 @@ register(
         postprocess=_macro_us_series_post,
     )
 )
+
+# Macro: HK via AkShare
+def _macro_hk_series_post(df: _pd.DataFrame, params: Dict[str, Any], *, indicator_id: str, indicator_name: str, unit: str = 'index', period: str = 'M') -> _pd.DataFrame:
+    date_col = '月份' if '月份' in df.columns else ('时间' if '时间' in df.columns else df.columns[0])
+    # pick value column: prefer known names else first numeric-looking column
+    candidates = [
+        '失业率', '失业率(%)', 'Unemployment Rate',
+        '楼宇买卖合约数量', '合约数量', '成交数量',
+        '楼宇买卖合约成交金额', '成交金额',
+    ]
+    val_series = None
+    for c in candidates:
+        if c in df.columns:
+            val_series = _pd.to_numeric(df[c], errors='coerce')
+            break
+    if val_series is None:
+        # try second column
+        try:
+            val_series = _pd.to_numeric(df.iloc[:, 1], errors='coerce')
+        except Exception:
+            val_series = _pd.Series([], dtype='float64')
+    out = _pd.DataFrame({
+        'region': 'HK',
+        'indicator_id': indicator_id,
+        'indicator_name': indicator_name,
+        'date': df[date_col],
+        'value': val_series,
+        'unit': unit,
+        'period': period,
+        'source': 'akshare',
+    })
+    return out.dropna(subset=['value'])
+
+
+def _macro_hk_unemployment_post(df: _pd.DataFrame, params: Dict[str, Any]) -> _pd.DataFrame:
+    return _macro_hk_series_post(df, params, indicator_id='unemployment', indicator_name='Unemployment Rate', unit='pct', period='M')
+
+
+def _macro_hk_building_volume_post(df: _pd.DataFrame, params: Dict[str, Any]) -> _pd.DataFrame:
+    return _macro_hk_series_post(df, params, indicator_id='building_contracts_volume', indicator_name='Building Contracts Volume', unit='count', period='M')
+
+
+def _macro_hk_building_amount_post(df: _pd.DataFrame, params: Dict[str, Any]) -> _pd.DataFrame:
+    return _macro_hk_series_post(df, params, indicator_id='building_contracts_amount', indicator_name='Building Contracts Amount', unit='HKD_billion', period='M')
+
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.unemployment",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=["macro_china_hk_rate_of_unemployment"],
+        source="stats",
+        param_transform=_noop_params,
+        postprocess=_macro_hk_unemployment_post,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.building.volume",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=["macro_china_hk_building_volume"],
+        source="stats",
+        param_transform=_noop_params,
+        postprocess=_macro_hk_building_volume_post,
+    )
+)
+
+register(
+    DatasetSpec(
+        dataset_id="macro.hk.building.amount",
+        category="macro",
+        domain="macro.hk",
+        ak_functions=["macro_china_hk_building_amount"],
+        source="stats",
+        param_transform=_noop_params,
+        postprocess=_macro_hk_building_amount_post,
+    )
+)
