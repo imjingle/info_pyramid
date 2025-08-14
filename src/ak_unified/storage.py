@@ -284,3 +284,18 @@ async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[
             return pickle.loads(bytes(row[0]))
         except Exception:
             return None
+
+
+async def purge_blob(pool: asyncpg.Pool, dataset_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> int:
+    async with pool.acquire() as conn:
+        if params is not None:
+            key = _request_key(dataset_id or "", params)
+            res = await conn.execute("delete from aku_cache_blob where key = $1", key)
+        elif dataset_id is not None:
+            res = await conn.execute("delete from aku_cache_blob where dataset_id = $1", dataset_id)
+        else:
+            return 0
+    try:
+        return int(res.split()[-1])
+    except Exception:
+        return 0

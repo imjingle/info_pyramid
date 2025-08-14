@@ -12,6 +12,7 @@ from .dispatcher import get_ohlcva
 from .registry import REGISTRY
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
+from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
@@ -264,6 +265,24 @@ async def admin_cache_purge(
     if pool is None:
         return {"enabled": False, "deleted": 0}
     deleted = await _purge_records(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field)
+    return {"enabled": True, "deleted": int(deleted)}
+
+@app.get("/admin/cache/blob")
+async def admin_cache_blob_get(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...)) -> Dict[str, Any]:
+    pool = await _get_pool()
+    if pool is None:
+        return {"enabled": False}
+    raw_obj = await _blob_fetch(pool, dataset_id, params)
+    if raw_obj is None:
+        return {"enabled": True, "found": False}
+    return {"enabled": True, "found": True, "raw": raw_obj}
+
+@app.post("/admin/cache/blob/purge")
+async def admin_cache_blob_purge(dataset_id: Optional[str] = Query(None), params: Optional[Dict[str, Any]] = Query(None)) -> Dict[str, Any]:
+    pool = await _get_pool()
+    if pool is None:
+        return {"enabled": False, "deleted": 0}
+    deleted = await _blob_purge(pool, dataset_id, params)
     return {"enabled": True, "deleted": int(deleted)}
 
 
