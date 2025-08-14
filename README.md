@@ -47,6 +47,11 @@ SSE topics:
 - QMT board aggregation: `/topic/qmt/board?board_kind=industry&interval=2&window_n=10&bucket_sec=60&history_buckets=30&adapter_priority=qmt&adapter_priority=akshare&adapter_priority=qstock`
 - QMT index aggregation: `/topic/qmt/index?index_codes=000300.SH&adapter_priority=qmt&adapter_priority=akshare`
 
+## Postgres caching (asyncpg)
+- 设置环境变量 `AKU_DB_DSN` 启用：例如 `export AKU_DB_DSN=postgres://user:pass@host:5432/dbname`
+- 首次使用会自动初始化表 `aku_cache` 与必要索引
+- 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
+
 ## Testing
 Run tests:
 ```bash

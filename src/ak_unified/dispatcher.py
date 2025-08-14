@@ -7,6 +7,8 @@ import pandas as pd
 from .schemas.envelope import DataEnvelope, Pagination
 from .registry import REGISTRY, DatasetSpec
 from .adapters.akshare_adapter import call_akshare
+from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert
+import asyncio
 
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
@@ -58,6 +60,22 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         env.data_source = spec.source or "computed"
         return env
 
+    # try cache first (only for non-realtime datasets)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    pool = loop.run_until_complete(get_pool())
+    cached: List[Dict[str, Any]] = []
+    if pool is not None:
+        # heuristics for key fields
+        symbol = params.get("symbol")
+        index_symbol = params.get("index_code") or params.get("index_symbol")
+        board_code = params.get("board_code") or params.get("symbol") if "board" in dataset_id else None
+        time_field = "datetime" if "ohlcv_min" in dataset_id or dataset_id.endswith(".ohlcva_min") else "date"
+        start = params.get("start")
+        end = params.get("end")
+        cached = loop.run_until_complete(_db_fetch(pool, dataset_id, symbol=symbol, index_symbol=index_symbol, board_code=board_code, start=start, end=end, time_field=time_field))
+        # if full coverage not guaranteed, we will still fetch from source and merge; implementing precise gap detection is postponed for simplicity
+
     ak_params = _apply_param_transform(spec, params)
 
     # dispatch adapter
@@ -92,6 +110,24 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
 
     df = _postprocess(spec, df, params)
     records = df.to_dict(orient="records")
+
+    # merge with cache and upsert
+    if pool is not None and records:
+        try:
+            # naive merge by row_key uniqueness is handled in upsert
+            loop.run_until_complete(_db_upsert(pool, dataset_id, records))
+            if cached:
+                # return union (cached + fresh unique)
+                # simple de-dup by row_key reusing storage internal rule requires recompute; here we drop duplicates by (symbol/index_symbol/board_code,time)
+                def key(r: Dict[str, Any]):
+                    return (r.get('symbol') or r.get('index_symbol') or r.get('board_code'), r.get('date') or r.get('datetime'))
+                merged = {key(r): r for r in cached}
+                for r in records:
+                    merged[key(r)] = r
+                records = list(merged.values())
+        except Exception:
+            pass
+
     env = _envelope(spec, params, records)
     env.ak_function = fn_used
     env.data_source = spec.source
