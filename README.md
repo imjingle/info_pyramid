@@ -47,22 +47,25 @@ SSE topics:
 - QMT board aggregation: `/topic/qmt/board?board_kind=industry&interval=2&window_n=10&bucket_sec=60&history_buckets=30&adapter_priority=qmt&adapter_priority=akshare&adapter_priority=qstock`
 - QMT index aggregation: `/topic/qmt/index?index_codes=000300.SH&adapter_priority=qmt&adapter_priority=akshare`
 
+## Normalization
+- 系统内置按数据集前缀的标准化规则：时间字段格式化、symbol 大写、常用数值字段转 float 等；并在响应和存储前统一应用
+- 可通过 `AKU_NORMALIZATION_RULES`（JSON 数组）覆盖/扩展前缀规则，例如：
+```json
+[
+  {"prefix":"securities.equity.cn.ohlcva_daily","keep_fields":["symbol","date","open","high","low","close","volume","amount"]},
+  {"prefix":"market.index","drop_fields":["turnover_rate"],"rename_map":{"收盘":"close"}}
+]
+```
+
 ## Postgres caching (asyncpg)
-- 设置环境变量 `AKU_DB_DSN` 启用：例如 `export AKU_DB_DSN=postgres://user:pass@host:5432/dbname`
-- 首次使用会自动初始化表 `aku_cache` 与必要索引
-- 可选 TTL：全局 `AKU_CACHE_TTL_SECONDS`，或按数据集前缀 `AKU_CACHE_TTL_PER_DATASET`（JSON）
+- 设置 `AKU_DB_DSN` 启用；可选 TTL：`AKU_CACHE_TTL_SECONDS` 或 `AKU_CACHE_TTL_PER_DATASET`
 - 查询流程：先查库；若部分或全部缺失，将从上游获取数据并合并回写（SSE 实时来源暂不缓存）
 
 Export/Import cache:
 ```bash
-# export all datasets to ndjson
-uv run python -m ak_unified.tools.cache_tools export -o cache.ndjson
-# export specific prefix
-uv run python -m ak_unified.tools.cache_tools export -o idx.ndjson --dataset-prefix market.index
-# import from file
-uv run python -m ak_unified.tools.cache_tools import -i cache.ndjson
-# import with prefix filter
-uv run python -m ak_unified.tools.cache_tools import -i idx.ndjson --dataset-prefix market.index
+uv run python -m ak_unified.tools.cache_tools export -o cache.ndjson --dataset-prefix market.index --time-field date --start 2024-01-01 --end 2024-06-30 \
+  --rename-map-json '{"收盘":"close"}' --keep-fields symbol,date,open,high,low,close,volume,amount
+uv run python -m ak_unified.tools.cache_tools import -i cache.ndjson --drop-fields pct_change,turnover_rate
 ```
 
 ## Testing

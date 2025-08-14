@@ -10,6 +10,7 @@ from .registry import REGISTRY, DatasetSpec
 from .adapters.akshare_adapter import call_akshare
 from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert
 import asyncio
+from .normalization import apply_normalization
 
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
@@ -270,7 +271,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 
     df = _postprocess(spec, df, params)
-    records = df.to_dict(orient="records")
+    records = apply_normalization(dataset_id, df.to_dict(orient="records"))
 
     # merge with cache and upsert
     if pool is not None and records and not is_realtime:
