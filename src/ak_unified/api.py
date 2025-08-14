@@ -195,6 +195,44 @@ async def rpc_ohlcva(
     env = get_ohlcva(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
+@app.get("/rpc/agg/board_snapshot")
+async def rpc_board_snapshot(
+    board_kind: str = Query("industry"),
+    boards: List[str] = Query(...),
+    topn: int = Query(5),
+    adapter_priority: Optional[List[str]] = Query(None),
+):
+    params: Dict[str, Any] = {"board_kind": board_kind, "boards": boards, "topn": topn}
+    if adapter_priority:
+        params["adapter_priority"] = adapter_priority
+    env = fetch_data("market.cn.board_aggregation.snapshot", params)
+    return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
+
+@app.get("/rpc/agg/index_snapshot")
+async def rpc_index_snapshot(
+    index_codes: List[str] = Query(...),
+    topn: int = Query(5),
+    adapter_priority: Optional[List[str]] = Query(None),
+):
+    params: Dict[str, Any] = {"index_codes": index_codes, "topn": topn}
+    if adapter_priority:
+        params["adapter_priority"] = adapter_priority
+    env = fetch_data("market.cn.index_aggregation.snapshot", params)
+    return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
+
+@app.get("/rpc/agg/playback")
+async def rpc_agg_playback(
+    entity_type: str = Query("board"),
+    ids: List[str] = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    freq: Optional[str] = Query(None),
+    window_n: int = Query(10),
+):
+    params: Dict[str, Any] = {"entity_type": entity_type, "ids": ids, "start": start, "end": end, "freq": freq, "window_n": window_n}
+    env = fetch_data("market.cn.aggregation.playback", params)
+    return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
+
 @app.get("/admin/cache/status")
 async def admin_cache_status() -> Dict[str, Any]:
     pool = await _get_pool()
