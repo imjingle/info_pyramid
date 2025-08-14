@@ -92,12 +92,15 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
               timezone text,
               created_at timestamptz default now(),
               updated_at timestamptz default now(),
-              raw_data bytea not null
+              raw_data bytea not null,
+              encoding text default 'raw'
             );
             create index if not exists idx_aku_cache_blob_dataset on aku_cache_blob(dataset_id);
             create index if not exists idx_aku_cache_blob_updated_at on aku_cache_blob(updated_at);
             """
         )
+        # add encoding column if missing (for upgrades)
+        await conn.execute("alter table if exists aku_cache_blob add column if not exists encoding text default 'raw'")
 
 
 def _row_key(dataset_id: str, rec: Dict[str, Any]) -> str:
@@ -243,6 +246,7 @@ async def purge_records(
 
 # ---------- Request-level blob cache ----------
 import pickle
+import zlib
 
 
 def _request_key(dataset_id: str, params: Dict[str, Any]) -> str:
@@ -263,26 +267,34 @@ async def upsert_blob_snapshot(
 ) -> None:
     key = _request_key(dataset_id, params)
     data = pickle.dumps(raw_obj)
+    encoding = 'raw'
+    if os.environ.get('AKU_BLOB_COMPRESS', '0') in ('1', 'true', 'True'):
+        data = zlib.compress(data)
+        encoding = 'zlib'
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            insert into aku_cache_blob (key, dataset_id, params, ak_function, adapter, timezone, raw_data, updated_at)
-            values ($1,$2,$3,$4,$5,$6,$7, now())
-            on conflict (key) do update set raw_data = excluded.raw_data, ak_function = excluded.ak_function, adapter = excluded.adapter, timezone = excluded.timezone, updated_at = now();
+            insert into aku_cache_blob (key, dataset_id, params, ak_function, adapter, timezone, raw_data, encoding, updated_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8, now())
+            on conflict (key) do update set raw_data = excluded.raw_data, encoding = excluded.encoding, ak_function = excluded.ak_function, adapter = excluded.adapter, timezone = excluded.timezone, updated_at = now();
             """,
-            key, dataset_id, json.dumps(params, ensure_ascii=False), ak_function, adapter, timezone, data,
+            key, dataset_id, json.dumps(params, ensure_ascii=False), ak_function, adapter, timezone, data, encoding,
         )
 
 
 async def fetch_blob_snapshot(pool: asyncpg.Pool, dataset_id: str, params: Dict[str, Any]) -> Optional[Tuple[Any, Dict[str, Any]]]:
     key = _request_key(dataset_id, params)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("select raw_data, ak_function, adapter, timezone, params from aku_cache_blob where key = $1", key)
+        row = await conn.fetchrow("select raw_data, ak_function, adapter, timezone, params, encoding from aku_cache_blob where key = $1", key)
         if not row:
             return None
         try:
-            raw = pickle.loads(bytes(row[0]))
-            meta = {"ak_function": row[1], "adapter": row[2], "timezone": row[3], "params": json.loads(row[4]) if row[4] else {}}
+            blob = bytes(row[0])
+            encoding = row[5] or 'raw'
+            if encoding == 'zlib':
+                blob = zlib.decompress(blob)
+            raw = pickle.loads(blob)
+            meta = {"ak_function": row[1], "adapter": row[2], "timezone": row[3], "params": json.loads(row[4]) if row[4] else {}, "encoding": encoding}
             return raw, meta
         except Exception:
             return None
