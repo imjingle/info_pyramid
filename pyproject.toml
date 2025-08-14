@@ -29,12 +29,14 @@ mootdx = ["mootdx>=0.9.0"]
 efinance = ["efinance>=0.5.0"]
 qstock = ["qstock>=0.6.0"]
 adata = ["adata"]
+yfinance = ["yfinance>=0.2.0"]
 complements = [
   "baostock>=0.8.0",
   "mootdx>=0.9.0",
   "efinance>=0.5.0",
   "qstock>=0.6.0",
   "adata",
+  "yfinance>=0.2.0",
 ]
 
 [build-system]

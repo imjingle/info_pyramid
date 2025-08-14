@@ -3807,3 +3807,77 @@ def _compute_index_aggregation_snapshot(params: Dict[str, Any]) -> pd.DataFrame:
             a['pct_rank_vs_indices'] = None
         out_rows.append(a)
     return _pd.DataFrame(out_rows)
+
+# yfinance adapter registrations (US/HK)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_daily.yf",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_daily.yf",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "start": p.get("start"), "end": p.get("end")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.ohlcv_min.yf",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "freq": p.get("freq")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.ohlcv_min.yf",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbol": p.get("symbol"), "freq": p.get("freq")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.us.quote.yf",
+        category="securities",
+        domain="securities.equity.us",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)
+register(
+    DatasetSpec(
+        dataset_id="securities.equity.hk.quote.yf",
+        category="securities",
+        domain="securities.equity.hk",
+        ak_functions=[],
+        source="yfinance",
+        param_transform=lambda p: {"symbols": p.get("symbols")},
+        adapter="yfinance",
+        platform="cross",
+    )
+)

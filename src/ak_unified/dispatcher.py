@@ -157,6 +157,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             elif spec.adapter == "adata":
                 from .adapters.adata_adapter import call_adata
                 fn_used, df = call_adata(dataset_id, part_ak_params)
+            elif spec.adapter == "yfinance":
+                from .adapters.yfinance_adapter import call_yfinance
+                fn_used, df = call_yfinance(dataset_id, part_ak_params)
             else:
                 raise RuntimeError(f"Unknown adapter: {spec.adapter}")
             df = _postprocess(spec, df, part_params)
@@ -237,6 +240,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
             elif spec.adapter == "adata":
                 from .adapters.adata_adapter import call_adata
                 fn_used, df = call_adata(dataset_id, part_ak_params)
+            elif spec.adapter == "yfinance":
+                from .adapters.yfinance_adapter import call_yfinance
+                fn_used, df = call_yfinance(dataset_id, part_ak_params)
             else:
                 raise RuntimeError(f"Unknown adapter: {spec.adapter}")
             df = _postprocess(spec, df, part_params)
@@ -280,6 +286,9 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     elif spec.adapter == "adata":
         from .adapters.adata_adapter import call_adata
         fn_used, df = call_adata(dataset_id, ak_params)
+    elif spec.adapter == "yfinance":
+        from .adapters.yfinance_adapter import call_yfinance
+        fn_used, df = call_yfinance(dataset_id, ak_params)
     else:
         raise RuntimeError(f"Unknown adapter: {spec.adapter}")
 
