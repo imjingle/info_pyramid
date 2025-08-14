@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Body
 from sse_starlette.sse import EventSourceResponse
 
 from .dispatcher import fetch_data, get_ohlcv, get_market_quote
@@ -130,6 +130,37 @@ async def rpc_fetch_async(
     loop = asyncio.get_running_loop()
     env = await loop.run_in_executor(None, lambda: fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback))
     return env.model_dump()
+
+
+@app.post("/rpc/batch")
+async def rpc_batch(
+    tasks: List[Dict[str, Any]] = Body(..., embed=False)
+) -> List[Dict[str, Any]]:
+    async def run_task(task: Dict[str, Any]) -> Dict[str, Any]:
+        ds = _apply_adapter_variant(task.get('dataset_id'), task.get('adapter'))
+        params = task.get('params') or {}
+        ak_function = task.get('ak_function')
+        allow_fallback = bool(task.get('allow_fallback', False))
+        spec = REGISTRY.get(ds)
+        try:
+            if spec and getattr(spec, 'adapter', 'akshare') == 'baostock':
+                from .adapters.baostock_adapter import acall_baostock
+                tag, df = await acall_baostock(ds, params)
+                return {
+                    "dataset": ds,
+                    "ok": True,
+                    "ak_function": tag,
+                    "data_source": "baostock",
+                    "data": df.to_dict(orient='records'),
+                }
+            loop = asyncio.get_running_loop()
+            env = await loop.run_in_executor(None, lambda: fetch_data(ds, params, ak_function=ak_function, allow_fallback=allow_fallback))
+            return {"dataset": ds, "ok": True, "ak_function": env.ak_function, "data_source": env.data_source, "data": env.data}
+        except Exception as e:  # noqa: BLE001
+            return {"dataset": ds, "ok": False, "error": str(e)}
+
+    results = await asyncio.gather(*(run_task(t) for t in tasks), return_exceptions=False)
+    return results
 
 
 @app.get("/rpc/ohlcv")
