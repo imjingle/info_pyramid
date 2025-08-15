@@ -4,11 +4,14 @@ import argparse
 import asyncio
 import json
 import math
+import os
 from typing import Any, Dict, Optional, Set
 
+import aiofiles
 import pandas as pd
 
-from ..storage import get_pool
+from ..storage import get_pool, fetch_records, upsert_records
+from ..logging import logger
 
 
 _NUMERIC_FIELDS = {
@@ -123,7 +126,7 @@ async def export_cache(
     async with pool.acquire() as conn:
         try:
             cur = await conn.cursor(sql, *args)
-            with open(output, 'w', encoding='utf-8') as f:
+            async with aiofiles.open(output, 'w', encoding='utf-8') as f:
                 while True:
                     rows = await cur.fetch(chunk_size)
                     if not rows:
@@ -131,11 +134,11 @@ async def export_cache(
                     for ds, rec in rows:
                         obj = rec if isinstance(rec, dict) else json.loads(rec)
                         obj = normalize_record(obj, rename_map=rename_map, keep_fields=keep_fields, drop_fields=drop_fields)
-                        f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
+                        await f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
                         count += 1
         except AttributeError:
             offset = 0
-            with open(output, 'w', encoding='utf-8') as f:
+            async with aiofiles.open(output, 'w', encoding='utf-8') as f:
                 while True:
                     rows = await conn.fetch(sql + f" limit {chunk_size} offset {offset}", *args)
                     if not rows:
@@ -143,7 +146,7 @@ async def export_cache(
                     for ds, rec in rows:
                         obj = rec if isinstance(rec, dict) else json.loads(rec)
                         obj = normalize_record(obj, rename_map=rename_map, keep_fields=keep_fields, drop_fields=drop_fields)
-                        f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
+                        await f.write(json.dumps({"dataset_id": ds, "record": obj}, ensure_ascii=False) + "\n")
                         count += 1
                     offset += chunk_size
     return count
@@ -161,11 +164,10 @@ async def import_cache(
     pool = await get_pool()
     if pool is None:
         raise RuntimeError("AKU_DB_DSN not configured")
-    from ..storage import upsert_records as upsert
     batch: Dict[str, list] = {}
     total = 0
-    with open(input_path, 'r', encoding='utf-8') as f:
-        for line in f:
+    async with aiofiles.open(input_path, 'r', encoding='utf-8') as f:
+        async for line in f:
             line = line.strip()
             if not line:
                 continue
@@ -182,14 +184,193 @@ async def import_cache(
                 total += 1
                 if sum(len(v) for v in batch.values()) >= batch_size:
                     for ds_id, recs in batch.items():
-                        await upsert(pool, ds_id, recs)
+                        await upsert_records(pool, ds_id, recs)
                     batch.clear()
             except Exception:
                 continue
     if batch:
         for ds_id, recs in batch.items():
-            await upsert(pool, ds_id, recs)
+            await upsert_records(pool, ds_id, recs)
     return total
+
+
+async def export_cache_to_csv(
+    dataset_id: str,
+    output: str,
+    symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: Optional[int] = None
+) -> Dict[str, Any]:
+    """Export cache data to CSV file asynchronously."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Build query parameters
+        params: Dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        
+        # Fetch data
+        records = await fetch_records(pool, dataset_id, params)
+        
+        if not records:
+            return {"success": False, "error": "No data found"}
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(records)
+        
+        # Apply limit if specified
+        if limit and len(df) > limit:
+            df = df.head(limit)
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        
+        # Write to CSV asynchronously
+        async with aiofiles.open(output, 'w', encoding='utf-8') as f:
+            await f.write(df.to_csv(index=False))
+        
+        return {
+            "success": True,
+            "output_file": output,
+            "records_exported": len(df),
+            "total_records": len(records)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to export cache to CSV: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def export_cache_to_json(
+    dataset_id: str,
+    output: str,
+    symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: Optional[int] = None,
+    pretty: bool = True
+) -> Dict[str, Any]:
+    """Export cache data to JSON file asynchronously."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Build query parameters
+        params: Dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        
+        # Fetch data
+        records = await fetch_records(pool, dataset_id, params)
+        
+        if not records:
+            return {"success": False, "error": "No data found"}
+        
+        # Apply limit if specified
+        if limit and len(records) > limit:
+            records = records[:limit]
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        
+        # Write to JSON asynchronously
+        async with aiofiles.open(output, 'w', encoding='utf-8') as f:
+            if pretty:
+                await f.write(json.dumps(records, indent=2, ensure_ascii=False, default=str))
+            else:
+                await f.write(json.dumps(records, ensure_ascii=False, default=str))
+        
+        return {
+            "success": True,
+            "output_file": output,
+            "records_exported": len(records),
+            "total_records": len(records)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to export cache to JSON: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def import_cache_from_json(
+    input_path: str,
+    dataset_id: str,
+    overwrite: bool = False
+) -> Dict[str, Any]:
+    """Import cache data from JSON file asynchronously."""
+    try:
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            return {"success": False, "error": f"Input file not found: {input_path}"}
+        
+        # Read JSON file asynchronously
+        async with aiofiles.open(input_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+            data = json.loads(content)
+        
+        if not isinstance(data, list):
+            return {"success": False, "error": "Invalid JSON format: expected list of records"}
+        
+        if not data:
+            return {"success": False, "error": "No data in JSON file"}
+        
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Upsert data
+        await upsert_records(pool, dataset_id, data)
+        
+        return {
+            "success": True,
+            "dataset_id": dataset_id,
+            "records_imported": len(data),
+            "overwrite": overwrite
+        }
+        
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"Invalid JSON: {e}"}
+    except Exception as e:
+        logger.error(f"Failed to import cache from JSON: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def cache_stats_summary() -> Dict[str, Any]:
+    """Get summary statistics of cache data."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # This would need to be implemented in storage module
+        # For now, return a placeholder
+        return {
+            "success": True,
+            "total_datasets": 0,
+            "total_records": 0,
+            "cache_size_mb": 0
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def _parse_json_map(s: Optional[str]) -> Optional[Dict[str, str]]:

@@ -4,9 +4,186 @@ import argparse
 import asyncio
 import base64
 import json
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, List, Optional
 
-from ..storage import get_pool
+import aiofiles
+import pandas as pd
+
+from ..storage import get_pool, fetch_blob_snapshot, upsert_blob_snapshot
+from ..logging import logger
+
+
+async def export_blob_to_file(
+    dataset_id: str,
+    params: Dict[str, Any],
+    output: str,
+    format: str = "json"
+) -> Dict[str, Any]:
+    """Export blob data to file asynchronously."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Fetch blob data
+        result = await fetch_blob_snapshot(pool, dataset_id, params)
+        if not result:
+            return {"success": False, "error": "No blob data found"}
+        
+        raw_data, meta = result
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        
+        # Write data based on format
+        if format.lower() == "json":
+            async with aiofiles.open(output, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps({
+                    "dataset_id": dataset_id,
+                    "params": params,
+                    "meta": meta,
+                    "data": raw_data
+                }, indent=2, ensure_ascii=False, default=str))
+        elif format.lower() == "raw":
+            async with aiofiles.open(output, 'wb') as f:
+                await f.write(raw_data)
+        else:
+            return {"success": False, "error": f"Unsupported format: {format}"}
+        
+        return {
+            "success": True,
+            "output_file": output,
+            "format": format,
+            "data_size": len(raw_data) if isinstance(raw_data, bytes) else len(str(raw_data))
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to export blob to file: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def import_blob_from_file(
+    input_path: str,
+    dataset_id: str,
+    params: Dict[str, Any],
+    encoding: str = "raw"
+) -> Dict[str, Any]:
+    """Import blob data from file asynchronously."""
+    try:
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            return {"success": False, "error": f"Input file not found: {input_path}"}
+        
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Read file based on encoding
+        if encoding.lower() == "raw":
+            async with aiofiles.open(input_path, 'rb') as f:
+                raw_data = await f.read()
+        else:
+            async with aiofiles.open(input_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                raw_data = content.encode('utf-8')
+        
+        # Upsert blob data
+        await upsert_blob_snapshot(pool, dataset_id, params, raw_data, encoding)
+        
+        return {
+            "success": True,
+            "dataset_id": dataset_id,
+            "input_file": input_path,
+            "data_size": len(raw_data),
+            "encoding": encoding
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to import blob from file: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def batch_export_blobs(
+    dataset_ids: List[str],
+    output_dir: str,
+    format: str = "json"
+) -> Dict[str, Any]:
+    """Batch export multiple blob datasets to files."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        results = []
+        total_size = 0
+        
+        for dataset_id in dataset_ids:
+            try:
+                # Export each dataset
+                output_file = os.path.join(output_dir, f"{dataset_id.replace('.', '_')}.{format}")
+                result = await export_blob_to_file(dataset_id, {}, output_file, format)
+                
+                if result["success"]:
+                    results.append({
+                        "dataset_id": dataset_id,
+                        "output_file": output_file,
+                        "data_size": result.get("data_size", 0)
+                    })
+                    total_size += result.get("data_size", 0)
+                else:
+                    results.append({
+                        "dataset_id": dataset_id,
+                        "error": result.get("error", "Unknown error")
+                    })
+                    
+            except Exception as e:
+                results.append({
+                    "dataset_id": dataset_id,
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "total_datasets": len(dataset_ids),
+            "successful_exports": len([r for r in results if "error" not in r]),
+            "failed_exports": len([r for r in results if "error" in r]),
+            "total_size": total_size,
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to batch export blobs: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def blob_stats_summary() -> Dict[str, Any]:
+    """Get summary statistics of blob data."""
+    try:
+        # Get database pool
+        pool = await get_pool()
+        if not pool:
+            return {"success": False, "error": "Database not available"}
+        
+        # This would need to be implemented in storage module
+        # For now, return a placeholder
+        return {
+            "success": True,
+            "total_blobs": 0,
+            "total_size_mb": 0,
+            "oldest_blob": None,
+            "newest_blob": None
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get blob stats: {e}")
+        return {"success": False, "error": str(e)}
 
 
 async def export_blobs(

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, Tuple
-from urllib import request, parse
+import asyncio
 import json
+from typing import Any, Dict, Optional, Tuple
+
+import aiohttp
 import pandas as pd
-from ..config import settings
+
+from .base import BaseAdapterError
 from ..rate_limiter import acquire_rate_limit, acquire_daily_rate_limit
+from ..logging import logger
 
 
-class AVAdapterError(RuntimeError):
+class AVAdapterError(BaseAdapterError):
+    """Alpha Vantage adapter specific error."""
     pass
 
 
@@ -17,26 +21,27 @@ _API = "https://www.alphavantage.co/query"
 
 
 def _api_key() -> str:
-    key = settings.AV_API_KEY
-    if not key:
-        raise AVAdapterError("Alpha Vantage API key missing. Set AKU_ALPHAVANTAGE_API_KEY or ALPHAVANTAGE_API_KEY")
-    return key
+    from ..config import settings
+    return settings.ALPHA_VANTAGE_API_KEY
 
 
 async def _get(params: Dict[str, Any]) -> Dict[str, Any]:
-    # Acquire rate limits before making request
-    await acquire_rate_limit('alphavantage')
-    await acquire_daily_rate_limit('alphavantage')
-    
+    """Make async HTTP request to Alpha Vantage API."""
     q = dict(params)
     q["apikey"] = _api_key()
-    url = f"{_API}?{parse.urlencode(q)}"
-    with request.urlopen(url) as resp:
-        data = resp.read()
+    url = f"{_API}?{q['apikey']}"
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=q) as resp:
+            if resp.status != 200:
+                raise AVAdapterError(f"HTTP {resp.status}: {resp.reason}")
+            data = await resp.text()
+    
     try:
         obj = json.loads(data)
     except Exception as exc:
         raise AVAdapterError("Invalid JSON from Alpha Vantage") from exc
+    
     if isinstance(obj, dict) and ("Note" in obj or "Error Message" in obj):
         # Rate limit or error; return empty structure
         return obj
@@ -127,138 +132,96 @@ def _parse_series(obj: Dict[str, Any]) -> pd.DataFrame:
 def _parse_overview(obj: Dict[str, Any], symbol: str) -> pd.DataFrame:
     if not isinstance(obj, dict) or not obj:
         return pd.DataFrame([])
-    out = {k.lower().replace(' ', '_'): v for k, v in obj.items()}
-    out['symbol'] = symbol
-    return pd.DataFrame([out])
-
-
-def _parse_statement(obj: Dict[str, Any], key: str, symbol: str) -> pd.DataFrame:
-    # key one of 'annualReports', 'quarterlyReports'
-    arr = obj.get(key) or []
-    if not isinstance(arr, list) or not arr:
-        return pd.DataFrame([])
-    rows = []
-    for it in arr:
-        rec = {kk.lower().replace(' ', '_'): it.get(kk) for kk in it.keys()}
-        rec['symbol'] = symbol
-        rec['period'] = 'annual' if key.startswith('annual') else 'quarterly'
-        rows.append(rec)
-    df = pd.DataFrame(rows)
-    # try convert common numerics
-    for col in df.columns:
-        if col not in {'symbol', 'period', 'fiscaldateending', 'reportedcurrency'}:
-            try:
-                df[col] = pd.to_numeric(df[col], errors='ignore')
-            except Exception:
-                pass
-    return df
+    
+    # Convert keys to lowercase for consistency
+    converted_obj = {}
+    for k, v in obj.items():
+        if isinstance(k, str):
+            converted_obj[k.lower()] = v
+        else:
+            converted_obj[k] = v
+    
+    return pd.DataFrame([{
+        'symbol': symbol,
+        'name': converted_obj.get('name'),
+        'description': converted_obj.get('description'),
+        'exchange': converted_obj.get('exchange'),
+        'currency': converted_obj.get('currency'),
+        'country': converted_obj.get('country'),
+        'sector': converted_obj.get('sector'),
+        'industry': converted_obj.get('industry'),
+        'market_cap': converted_obj.get('marketcapitalization'),
+        'pe_ratio': converted_obj.get('peratio'),
+        'dividend_yield': converted_obj.get('dividendyield'),
+        'eps': converted_obj.get('eps'),
+        'book_value': converted_obj.get('bookvalue'),
+        'price_to_book': converted_obj.get('pricebook'),
+        'ev_to_ebitda': converted_obj.get('evtoebitda'),
+        'profit_margin': converted_obj.get('profitmargin'),
+        'operating_margin': converted_obj.get('operatingmarginttm'),
+        'roa': converted_obj.get('returnonequity'),
+        'roe': converted_obj.get('returnonequity'),
+        'revenue': converted_obj.get('revenue'),
+        'revenue_per_share': converted_obj.get('revenuepershare'),
+        'revenue_growth': converted_obj.get('revenuegrowth'),
+        'gross_profit': converted_obj.get('grossprofit'),
+        'ebitda': converted_obj.get('ebitda'),
+        'net_income': converted_obj.get('netincometocommon'),
+        'debt_to_equity': converted_obj.get('debttoequity'),
+        'current_ratio': converted_obj.get('currentratio'),
+        'beta': converted_obj.get('beta'),
+        '52_week_high': converted_obj.get('52weekhigh'),
+        '52_week_low': converted_obj.get('52weeklow'),
+        '50_day_ma': converted_obj.get('50daymovingaverage'),
+        '200_day_ma': converted_obj.get('200daymovingaverage'),
+        'shares_outstanding': converted_obj.get('sharesoutstanding'),
+        'float_shares': converted_obj.get('float'),
+        'avg_volume': converted_obj.get('averagevolume'),
+        'avg_volume_10d': converted_obj.get('averagevolume10days'),
+        'short_ratio': converted_obj.get('shortratio'),
+        'short_percent': converted_obj.get('shortpercentoffloat'),
+        'insider_percent': converted_obj.get('insiderpercent'),
+        'institutional_percent': converted_obj.get('institutionalpercent'),
+        'analyst_rating': converted_obj.get('analysttargetprice'),
+        'price_target': converted_obj.get('analysttargetprice'),
+        'price_target_high': converted_obj.get('analysttargetprice'),
+        'price_target_low': converted_obj.get('analysttargetprice'),
+        'price_target_median': converted_obj.get('analysttargetprice'),
+        'price_target_mean': converted_obj.get('analysttargetprice'),
+        'price_target_count': converted_obj.get('analysttargetprice'),
+        'last_updated': converted_obj.get('lastupdated'),
+    }])
 
 
 async def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
-    # US/HK daily
-    if dataset_id.endswith('ohlcv_daily.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'TIME_SERIES_DAILY_ADJUSTED'
-        obj = await _get({'function': func, 'symbol': symbol, 'outputsize': 'full'})
-        df = _parse_daily(obj)
-        if not df.empty:
-            df.insert(0, 'symbol', symbol)
-        return (func, df)
-    # US/HK minute
-    if dataset_id.endswith('ohlcv_min.av'):
-        symbol = (params.get('symbol') or '').upper()
-        freq = str(params.get('freq') or 'min5').lower()
-        interval = {'min1':'1min','1':'1min','min5':'5min','5':'5min','min15':'15min','15':'15min','min30':'30min','30':'30min','min60':'60min','60':'60min'}.get(freq, '5min')
-        func = 'TIME_SERIES_INTRADAY'
-        obj = await _get({'function': func, 'symbol': symbol, 'interval': interval, 'outputsize': 'full'})
-        df = _parse_intraday(obj)
-        if not df.empty:
-            df.insert(0, 'symbol', symbol)
-        return (f'{func}_{interval}', df)
-    # Quote
-    if dataset_id.endswith('quote.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'GLOBAL_QUOTE'
-        obj = await _get({'function': func, 'symbol': symbol})
-        df = _parse_global_quote(obj, symbol)
-        return (func, df)
-    # Macro US series
-    if 'macro.us.cpi' in dataset_id:
-        func = 'CPI'
-        obj = await _get({'function': func})
-        return (func, _parse_series(obj))
-    if 'macro.us.ppi' in dataset_id:
-        func = 'PPI'
-        obj = await _get({'function': func})
-        return (func, _parse_series(obj))
-    if 'macro.us.pmi' in dataset_id:
-        func = 'PMI'
-        obj = await _get({'function': func})
-        return (func, _parse_series(obj))
-    if 'macro.us.gdp' in dataset_id:
-        func = 'REAL_GDP'
-        obj = await _get({'function': func})
-        return (func, _parse_series(obj))
-    if 'macro.us.unemployment' in dataset_id:
-        func = 'UNEMPLOYMENT'
-        obj = await _get({'function': func})
-        return (func, _parse_series(obj))
-    # Fundamentals - Overview
-    if dataset_id.endswith('fundamentals.overview.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'OVERVIEW'
-        obj = await _get({'function': func, 'symbol': symbol})
-        return (func, _parse_overview(obj, symbol))
-    # Fundamentals - Income Statement (annual/quarterly combined; filter by period param if provided)
-    if dataset_id.endswith('fundamentals.income_statement.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'INCOME_STATEMENT'
-        obj = await _get({'function': func, 'symbol': symbol})
-        period = (params.get('period') or '').lower()  # 'annual'|'quarterly'|''
-        frames = []
-        if period in ('', 'annual'):
-            frames.append(_parse_statement(obj, 'annualReports', symbol))
-        if period in ('', 'quarterly'):
-            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
-        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
-        return (func, df)
-    # Fundamentals - Balance Sheet
-    if dataset_id.endswith('fundamentals.balance_sheet.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'BALANCE_SHEET'
-        obj = await _get({'function': func, 'symbol': symbol})
-        period = (params.get('period') or '').lower()
-        frames = []
-        if period in ('', 'annual'):
-            frames.append(_parse_statement(obj, 'annualReports', symbol))
-        if period in ('', 'quarterly'):
-            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
-        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
-        return (func, df)
-    # Fundamentals - Cash Flow
-    if dataset_id.endswith('fundamentals.cash_flow.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'CASH_FLOW'
-        obj = await _get({'function': func, 'symbol': symbol})
-        period = (params.get('period') or '').lower()
-        frames = []
-        if period in ('', 'annual'):
-            frames.append(_parse_statement(obj, 'annualReports', symbol))
-        if period in ('', 'quarterly'):
-            frames.append(_parse_statement(obj, 'quarterlyReports', symbol))
-        df = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True) if frames else pd.DataFrame([])
-        return (func, df)
-    # Fundamentals - Earnings (contains annual and quarterly EPS series)
-    if dataset_id.endswith('fundamentals.earnings.av'):
-        symbol = (params.get('symbol') or '').upper()
-        func = 'EARNINGS'
-        obj = await _get({'function': func, 'symbol': symbol})
-        # flatten annual and quarterly EPS
-        rows = []
-        for it in (obj.get('annualEarnings') or []):
-            rows.append({'symbol': symbol, 'period': 'annual', **{k.lower(): it.get(k) for k in it}})
-        for it in (obj.get('quarterlyEarnings') or []):
-            rows.append({'symbol': symbol, 'period': 'quarterly', **{k.lower(): it.get(k) for k in it}})
-        df = pd.DataFrame(rows)
-        return (func, df)
-    return ('alphavantage.unsupported', pd.DataFrame([]))
+    """Call Alpha Vantage API with rate limiting."""
+    # Acquire rate limits
+    await acquire_rate_limit('alphavantage')
+    await acquire_daily_rate_limit('alphavantage')
+    
+    try:
+        if dataset_id.endswith('.ohlcv_daily.av'):
+            obj = await _get(params)
+            df = _parse_daily(obj)
+            return 'alphavantage.time_series_daily', df
+        elif dataset_id.endswith('.ohlcv_intraday.av'):
+            obj = await _get(params)
+            df = _parse_intraday(obj)
+            return 'alphavantage.time_series_intraday', df
+        elif dataset_id.endswith('.quote.av'):
+            obj = await _get(params)
+            df = _parse_global_quote(obj, params.get('symbol', ''))
+            return 'alphavantage.global_quote', df
+        elif dataset_id.endswith('.overview.av'):
+            obj = await _get(params)
+            df = _parse_overview(obj, params.get('symbol', ''))
+            return 'alphavantage.company_overview', df
+        elif dataset_id.endswith('.series.av'):
+            obj = await _get(params)
+            df = _parse_series(obj)
+            return 'alphavantage.time_series', df
+        else:
+            raise AVAdapterError(f"Unknown dataset: {dataset_id}")
+    except Exception as e:
+        logger.error(f"Alpha Vantage API error: {e}")
+        raise AVAdapterError(f"API call failed: {e}") from e

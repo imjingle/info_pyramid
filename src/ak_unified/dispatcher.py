@@ -116,7 +116,7 @@ async def fetch_data(
             fn_used, df = await asyncio.to_thread(call_mootdx, dataset_id, ak_params)
         elif spec.adapter == "qmt":
             from .adapters.qmt_adapter import call_qmt
-            fn_used, df = await asyncio.to_thread(call_qmt, dataset_id, ak_params)
+            fn_used, df = await call_qmt(dataset_id, ak_params)
         elif spec.adapter == "efinance":
             from .adapters.efinance_adapter import call_efinance
             fn_used, df = await asyncio.to_thread(call_efinance, dataset_id, ak_params)
@@ -156,6 +156,99 @@ async def fetch_data(
     env.ak_function = 'cache+source'
     env.data_source = spec.source
     return env
+
+
+async def fetch_data_batch(
+    tasks: List[Tuple[str, Dict[str, Any]]],
+    max_concurrent: int = 5,
+    allow_fallback: bool = False,
+    use_cache: bool = True,
+    use_blob: bool = True,
+    store_blob: bool = True,
+) -> List[DataEnvelope]:
+    """
+    Fetch multiple datasets concurrently with rate limiting and concurrency control.
+    
+    Args:
+        tasks: List of (dataset_id, params) tuples
+        max_concurrent: Maximum concurrent requests
+        allow_fallback: Whether to allow fallback for AkShare
+        use_cache: Whether to use cache
+        use_blob: Whether to use blob storage
+        store_blob: Whether to store blob data
+        
+    Returns:
+        List of DataEnvelope objects in the same order as tasks
+    """
+    semaphore = asyncio.Semaphore(max_concurrent)
+    
+    async def fetch_with_semaphore(task: Tuple[str, Dict[str, Any]]) -> DataEnvelope:
+        async with semaphore:
+            dataset_id, params = task
+            return await fetch_data(
+                dataset_id=dataset_id,
+                params=params,
+                allow_fallback=allow_fallback,
+                use_cache=use_cache,
+                use_blob=use_blob,
+                store_blob=store_blob
+            )
+    
+    # Execute all tasks concurrently
+    results = await asyncio.gather(
+        *[fetch_with_semaphore(task) for task in tasks],
+        return_exceptions=True
+    )
+    
+    # Handle exceptions and maintain order
+    processed_results = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(f"Task {i} failed: {result}")
+            # Create an error envelope
+            error_env = DataEnvelope(
+                category="error",
+                domain="error",
+                dataset=tasks[i][0],
+                params=tasks[i][1],
+                timezone=DEFAULT_TIMEZONE,
+                currency=None,
+                data=[],
+                pagination=Pagination(offset=0, limit=0, total=0),
+            )
+            error_env.ak_function = 'error'
+            error_env.data_source = 'error'
+            processed_results.append(error_env)
+        else:
+            processed_results.append(result)
+    
+    return processed_results
+
+
+async def fetch_data_with_rate_limiting(
+    dataset_id: str,
+    params: Dict[str, Any],
+    rate_limit_source: Optional[str] = None,
+    **kwargs: Any
+) -> DataEnvelope:
+    """
+    Fetch data with explicit rate limiting for a specific source.
+    
+    Args:
+        dataset_id: Dataset identifier
+        params: Query parameters
+        rate_limit_source: Source name for rate limiting (e.g., 'alphavantage', 'akshare')
+        **kwargs: Additional arguments for fetch_data
+        
+    Returns:
+        DataEnvelope with fetched data
+    """
+    if rate_limit_source:
+        from .rate_limiter import acquire_rate_limit, acquire_daily_rate_limit
+        await acquire_rate_limit(rate_limit_source)
+        await acquire_daily_rate_limit(rate_limit_source)
+    
+    return await fetch_data(dataset_id, params, **kwargs)
 
 
 # ------------- Convenience APIs -------------
@@ -223,3 +316,67 @@ async def get_ohlcva(
 ) -> DataEnvelope:
     params = {"symbol": symbol, "start": start, "end": end, "adjust": adjust}
     return await fetch_data("securities.equity.cn.ohlcva_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
+
+
+# ------------- Batch Convenience APIs -------------
+
+async def get_ohlcv_batch(
+    symbols: List[str],
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    adjust: str = "none",
+    max_concurrent: int = 5,
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> List[DataEnvelope]:
+    """Get OHLCV data for multiple symbols concurrently."""
+    tasks = [
+        ("securities.equity.cn.ohlcv_daily", {
+            "symbol": symbol, "start": start, "end": end, "adjust": adjust
+        })
+        for symbol in symbols
+    ]
+    return await fetch_data_batch(
+        tasks,
+        max_concurrent=max_concurrent,
+        allow_fallback=allow_fallback
+    )
+
+
+async def get_market_quotes_batch(
+    symbols: List[str],
+    max_concurrent: int = 5,
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> List[DataEnvelope]:
+    """Get market quotes for multiple symbols concurrently."""
+    tasks = [
+        ("securities.equity.cn.quote", {"symbol": symbol})
+        for symbol in symbols
+    ]
+    return await fetch_data_batch(
+        tasks,
+        max_concurrent=max_concurrent,
+        allow_fallback=allow_fallback
+    )
+
+
+async def get_index_constituents_batch(
+    index_codes: List[str],
+    max_concurrent: int = 5,
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> List[DataEnvelope]:
+    """Get index constituents for multiple indices concurrently."""
+    tasks = [
+        ("market.index.constituents", {"index_code": index_code})
+        for index_code in index_codes
+    ]
+    return await fetch_data_batch(
+        tasks,
+        max_concurrent=max_concurrent,
+        allow_fallback=allow_fallback
+    )
