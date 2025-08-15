@@ -9,6 +9,7 @@ from .schemas.envelope import DataEnvelope, Pagination
 from .registry import REGISTRY, DatasetSpec
 from .adapters.akshare_adapter import call_akshare
 from .storage import get_pool, fetch_records as _db_fetch, upsert_records as _db_upsert, upsert_blob_snapshot as _db_upsert_blob, fetch_blob_snapshot as _db_fetch_blob
+from .storage import fetch_blob_range as _db_fetch_blob_range
 import asyncio
 from .normalization import apply_and_validate
 from .logging import logger
@@ -111,6 +112,16 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
                         return env
             except Exception:
                 logger.bind(dataset=dataset_id).warning("row cache coverage check failed")
+                pass
+        # augment from blob-range for partial reuse
+        if use_blob and start and end:
+            try:
+                blob_part = loop.run_until_complete(_db_fetch_blob_range(pool, dataset_id, params))
+                if blob_part:
+                    logger.bind(dataset=dataset_id).info("blob range hit")
+                    cached = (cached or []) + blob_part
+            except Exception:
+                logger.bind(dataset=dataset_id).warning("blob range fetch failed")
                 pass
 
     ak_params = _apply_param_transform(spec, params)
@@ -335,7 +346,7 @@ def fetch_data(dataset_id: str, params: Optional[Dict[str, Any]] = None, *, ak_f
     # store blob
     if pool is not None and store_blob and not is_realtime:
         try:
-            loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, records, spec.adapter or 'unknown', fn_used))
+            loop.run_until_complete(_db_upsert_blob(pool, dataset_id, params, raw_obj=records, adapter=(spec.adapter or 'unknown'), ak_function=fn_used))
             logger.bind(dataset=dataset_id).info("blob stored")
         except Exception:
             logger.bind(dataset=dataset_id).warning("blob store failed")
