@@ -15,7 +15,17 @@ from .dispatcher import (
 )
 from .registry import REGISTRY
 from .schemas.envelope import DataEnvelope, Pagination
+from .schemas.events import (
+    EarningsCalendarRequest, EarningsForecastRequest,
+    EarningsCalendarResponse, EarningsForecastResponse
+)
+from .schemas.financial import (
+    FinancialDataRequest, FinancialIndicatorsResponse, 
+    FinancialStatementResponse, FinancialRatioResponse
+)
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
+from .adapters.earnings_calendar_adapter import call_earnings_calendar
+from .adapters.financial_data_adapter import call_financial_data
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
 from .normalization import apply_and_validate
@@ -950,3 +960,350 @@ async def rpc_index_playback(
         "total_symbols": len(symbols),
         "quotes_available": len(quotes)
     }
+
+
+# ============================================================================
+# Earnings Calendar API Endpoints
+# ============================================================================
+
+@app.get("/rpc/earnings/calendar")
+async def get_earnings_calendar(
+    market: str = Query("cn", description="Market code (cn, us, hk)"),
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format"),
+    symbols: Optional[List[str]] = Query(None, description="List of stock symbols to filter")
+) -> EarningsCalendarResponse:
+    """Get earnings calendar for specified market and date range."""
+    try:
+        # Get earnings calendar data
+        function_name, df = await call_earnings_calendar(
+            'earnings_calendar',
+            {
+                'market': market,
+                'start_date': start_date,
+                'end_date': end_date,
+                'symbols': symbols
+            }
+        )
+        
+        if df.empty:
+            return EarningsCalendarResponse(
+                success=True,
+                data=[],
+                total_count=0,
+                market=market,
+                period=f"{start_date or 'all'} to {end_date or 'all'}",
+                source="earnings_calendar_adapter"
+            )
+        
+        # Convert DataFrame to EarningsEvent objects
+        events = []
+        for _, row in df.iterrows():
+            event = EarningsEvent(
+                symbol=row.get('symbol', ''),
+                company_name=row.get('company_name'),
+                report_period=row.get('report_period', ''),
+                report_type=row.get('report_type', ''),
+                scheduled_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else None,
+                actual_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else None,
+                eps_estimate=row.get('eps_estimate'),
+                eps_actual=row.get('eps_actual'),
+                revenue_estimate=row.get('revenue_estimate'),
+                revenue_actual=row.get('revenue_actual'),
+                source=row.get('source', 'earnings_calendar_adapter'),
+                market=market
+            )
+            events.append(event)
+        
+        return EarningsCalendarResponse(
+            success=True,
+            data=events,
+            total_count=len(events),
+            market=market,
+            period=f"{start_date or 'all'} to {end_date or 'all'}",
+            source="earnings_calendar_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get earnings calendar: {e}")
+        return EarningsCalendarResponse(
+            success=False,
+            data=[],
+            total_count=0,
+            market=market,
+            period=f"{start_date or 'all'} to {end_date or 'all'}",
+            source="earnings_calendar_adapter"
+        )
+
+
+@app.get("/rpc/earnings/forecast")
+async def get_earnings_forecast(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, us, hk)"),
+    period: Optional[str] = Query(None, description="Forecast period")
+) -> EarningsForecastResponse:
+    """Get earnings forecast for a specific symbol."""
+    try:
+        # Get earnings forecast data
+        function_name, df = await call_earnings_calendar(
+            'earnings_forecast',
+            {
+                'symbol': symbol,
+                'market': market,
+                'period': period
+            }
+        )
+        
+        if df.empty:
+            return EarningsForecastResponse(
+                success=True,
+                symbol=symbol,
+                forecasts=[],
+                total_count=0,
+                market=market,
+                source="earnings_calendar_adapter"
+            )
+        
+        # Convert DataFrame to EarningsForecast objects
+        forecasts = []
+        for _, row in df.iterrows():
+            forecast = EarningsForecast(
+                symbol=row.get('symbol', symbol),
+                forecast_period=row.get('forecast_period', ''),
+                forecast_type=row.get('forecast_type', ''),
+                net_profit_change=row.get('net_profit_change'),
+                change_reason=row.get('change_reason'),
+                announcement_date=pd.to_datetime(row.get('announcement_date')) if row.get('announcement_date') else datetime.now(),
+                source=row.get('source', 'earnings_calendar_adapter'),
+                market=market
+            )
+            forecasts.append(forecast)
+        
+        return EarningsForecastResponse(
+            success=True,
+            symbol=symbol,
+            forecasts=forecasts,
+            total_count=len(forecasts),
+            market=market,
+            source="earnings_calendar_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get earnings forecast for {symbol}: {e}")
+        return EarningsForecastResponse(
+            success=False,
+            symbol=symbol,
+            forecasts=[],
+            total_count=0,
+            market=market,
+            source="earnings_calendar_adapter"
+        )
+
+
+@app.get("/rpc/earnings/dates")
+async def get_earnings_dates(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, us, hk)")
+) -> EarningsCalendarResponse:
+    """Get earnings dates for a specific symbol."""
+    try:
+        # Get earnings dates data
+        function_name, df = await call_earnings_calendar(
+            'earnings_dates',
+            {
+                'symbol': symbol,
+                'market': market
+            }
+        )
+        
+        if df.empty:
+            return EarningsCalendarResponse(
+                success=True,
+                data=[],
+                total_count=0,
+                market=market,
+                period="all",
+                source="earnings_calendar_adapter"
+            )
+        
+        # Convert DataFrame to EarningsEvent objects
+        events = []
+        for _, row in df.iterrows():
+            event = EarningsEvent(
+                symbol=row.get('symbol', symbol),
+                company_name=row.get('company_name'),
+                report_period=row.get('report_period', ''),
+                report_type=row.get('report_type', ''),
+                scheduled_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else None,
+                actual_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else None,
+                source=row.get('source', 'earnings_calendar_adapter'),
+                market=market
+            )
+            events.append(event)
+        
+        return EarningsCalendarResponse(
+            success=True,
+            data=events,
+            total_count=len(events),
+            market=market,
+            period="all",
+            source="earnings_calendar_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get earnings dates for {symbol}: {e}")
+        return EarningsCalendarResponse(
+            success=False,
+            data=[],
+            total_count=0,
+            market=market,
+            period="all",
+            source="earnings_calendar_adapter"
+        )
+
+
+# ============================================================================
+# Financial Data API Endpoints
+# ============================================================================
+
+@app.get("/rpc/financial/indicators")
+async def get_financial_indicators(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, us, hk)"),
+    period: str = Query("annual", description="Period type (annual, quarterly)"),
+    indicators: Optional[List[str]] = Query(None, description="List of specific indicators to get")
+) -> FinancialIndicatorsResponse:
+    """Get financial indicators for a specific symbol."""
+    try:
+        # Get financial indicators data
+        function_name, df = await call_financial_data(
+            'financial_indicators',
+            {
+                'symbol': symbol,
+                'market': market,
+                'period': period,
+                'indicators': indicators
+            }
+        )
+        
+        if df.empty:
+            return FinancialIndicatorsResponse(
+                success=True,
+                symbol=symbol,
+                indicators=[],
+                total_count=0,
+                period=period,
+                market=market,
+                source="financial_data_adapter"
+            )
+        
+        # Convert DataFrame to FinancialIndicator objects
+        indicator_list = []
+        for _, row in df.iterrows():
+            # Get all columns except symbol and report_date
+            indicator_cols = [col for col in df.columns if col not in ['symbol', 'report_date']]
+            
+            for col in indicator_cols:
+                if pd.notna(row[col]) and row[col] is not None:
+                    indicator = FinancialIndicator(
+                        symbol=row.get('symbol', symbol),
+                        indicator_name=col,
+                        indicator_value=float(row[col]) if pd.notna(row[col]) else 0.0,
+                        report_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else datetime.now(),
+                        period=period,
+                        source="financial_data_adapter",
+                        market=market
+                    )
+                    indicator_list.append(indicator)
+        
+        return FinancialIndicatorsResponse(
+            success=True,
+            symbol=symbol,
+            indicators=indicator_list,
+            total_count=len(indicator_list),
+            period=period,
+            market=market,
+            source="financial_data_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get financial indicators for {symbol}: {e}")
+        return FinancialIndicatorsResponse(
+            success=False,
+            symbol=symbol,
+            indicators=[],
+            total_count=0,
+            period=period,
+            market=market,
+            source="financial_data_adapter"
+        )
+
+
+@app.get("/rpc/financial/statements")
+async def get_financial_statements(
+    symbol: str = Query(..., description="Stock symbol"),
+    statement_type: str = Query(..., description="Type of statement (balance_sheet, income_statement, cash_flow)"),
+    market: str = Query("cn", description="Market code (cn, us, hk)"),
+    period: str = Query("annual", description="Period type (annual, quarterly)")
+) -> FinancialStatementResponse:
+    """Get financial statements for a specific symbol."""
+    try:
+        # Get financial statements data
+        function_name, df = await call_financial_data(
+            'financial_statements',
+            {
+                'symbol': symbol,
+                'statement_type': statement_type,
+                'market': market,
+                'period': period
+            }
+        )
+        
+        if df.empty:
+            return FinancialStatementResponse(
+                success=False,
+                symbol=symbol,
+                statement_type=statement_type,
+                statement=None,
+                period=period,
+                market=market,
+                source="financial_data_adapter"
+            )
+        
+        # Convert DataFrame to appropriate statement object
+        # This is a simplified conversion - in practice, you'd want more sophisticated mapping
+        statement_data = df.to_dict(orient='records')[0] if not df.empty else {}
+        
+        # Create a generic FinancialStatement for now
+        from .schemas.financial import FinancialStatement
+        statement = FinancialStatement(
+            symbol=symbol,
+            statement_type=statement_type,
+            period=period,
+            report_date=pd.to_datetime(statement_data.get('report_date')) if statement_data.get('report_date') else datetime.now(),
+            data=statement_data,
+            source="financial_data_adapter",
+            market=market
+        )
+        
+        return FinancialStatementResponse(
+            success=True,
+            symbol=symbol,
+            statement_type=statement_type,
+            statement=statement,
+            period=period,
+            market=market,
+            source="financial_data_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get financial statements for {symbol}: {e}")
+        return FinancialStatementResponse(
+            success=False,
+            symbol=symbol,
+            statement_type=statement_type,
+            statement=None,
+            period=period,
+            market=market,
+            source="financial_data_adapter"
+        )
