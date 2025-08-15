@@ -67,11 +67,11 @@ class TestRateLimiterPerformance:
             mock_settings.RATE_LIMIT_ENABLED = True
             mock_manager.acquire = AsyncMock(return_value=None)
             
-            async def benchmark_func():
-                await acquire_rate_limit('alphavantage')
+            def benchmark_func():
+                return asyncio.run(acquire_rate_limit('alphavantage'))
             
             # Run benchmark
-            result = benchmark(asyncio.run, benchmark_func())
+            result = benchmark(benchmark_func)
             assert result is None
 
 
@@ -148,11 +148,11 @@ class TestAdapterPerformance:
             mock_ak.stock_zh_a_hist.return_value = MagicMock()
             mock_import.return_value = mock_ak
             
-            async def benchmark_func():
-                return await call_akshare(['stock_zh_a_hist'], {'symbol': '000001'}, function_name='stock_zh_a_hist')
+            def benchmark_func():
+                return asyncio.run(call_akshare(['stock_zh_a_hist'], {'symbol': '000001'}, function_name='stock_zh_a_hist'))
             
             # Run benchmark
-            result = benchmark(asyncio.run, benchmark_func())
+            result = benchmark(benchmark_func)
             assert isinstance(result, tuple)
             assert len(result) == 2
 
@@ -266,7 +266,9 @@ class TestMemoryPerformance:
                 'value': [i * 0.01 for i in range(10000)]
             })
             df['processed'] = df['value'] * 2
-            df['filtered'] = df[df['processed'] > 10]
+            # Fix the filtering issue
+            mask = df['processed'] > 10
+            df['filtered'] = df.loc[mask, 'processed']
             return df
         
         # Run benchmark

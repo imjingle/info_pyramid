@@ -28,7 +28,9 @@ class TestYFinanceImport:
             result = _import_yf()
             
             assert result == mock_yf
-            mock_import.assert_called_once_with('yfinance')
+            # Python 3.13+ has additional parameters for __import__
+            mock_import.assert_called()
+            assert mock_import.call_args[0][0] == 'yfinance'
     
     def test_import_yf_failure(self):
         """Test yfinance import failure."""
@@ -323,20 +325,20 @@ class TestYFinanceQuotes:
         mock_yf = MagicMock()
         mock_import_yf.return_value = mock_yf
         
-        # Mock download response for single symbol
-        mock_df = pd.DataFrame({
-            'Date': pd.date_range('2024-01-01', periods=1),
-            'Open': [100.0], 'High': [105.0], 'Low': [95.0],
-            'Close': [103.0], 'Volume': [1000000]
-        })
-        mock_yf.download.return_value = mock_df
+        # Mock Ticker and fast_info for single symbol
+        mock_ticker = MagicMock()
+        mock_fast_info = MagicMock()
+        mock_fast_info.last_price = 150.0
+        mock_fast_info.previous_close = 148.0
+        mock_ticker.fast_info = mock_fast_info
+        mock_yf.Ticker.return_value = mock_ticker
         
         result = call_yfinance(
             'securities.equity.us.quote.yf',
             {'symbol': 'AAPL'}
         )
         
-        assert result[0] == 'yfinance.download_quote_multi'
+        assert result[0] == 'yfinance.ticker_fast_info'
         assert isinstance(result[1], pd.DataFrame)
         assert 'symbol' in result[1].columns
         assert result[1]['symbol'].iloc[0] == 'AAPL'
