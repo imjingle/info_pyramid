@@ -26,6 +26,26 @@ class Settings:
     BLOB_MAX_BYTES: Optional[int] = int(os.getenv("AKU_BLOB_MAX_BYTES", "0") or 0) or None
     BLOB_COMPRESS: bool = os.getenv("AKU_BLOB_COMPRESS", "0") == "1"
 
+    # Rate limiting configuration
+    RATE_LIMIT_ENABLED: bool = os.getenv("AKU_RATE_LIMIT_ENABLED", "1") == "1"
+    
+    # Alpha Vantage rate limits (requests per minute)
+    AV_RATE_LIMIT_PER_MIN: int = int(os.getenv("AKU_AV_RATE_LIMIT_PER_MIN", "5"))
+    AV_RATE_LIMIT_PER_DAY: int = int(os.getenv("AKU_AV_RATE_LIMIT_PER_DAY", "500"))
+    
+    # AkShare rate limits by vendor (requests per minute)
+    AKSHARE_EASTMONEY_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_EASTMONEY_RATE_LIMIT", "60"))
+    AKSHARE_SINA_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_SINA_RATE_LIMIT", "100"))
+    AKSHARE_TENCENT_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_TENCENT_RATE_LIMIT", "80"))
+    AKSHARE_THS_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_THS_RATE_LIMIT", "30"))
+    AKSHARE_TDX_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_TDX_RATE_LIMIT", "50"))
+    AKSHARE_BAIDU_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_BAIDU_RATE_LIMIT", "40"))
+    AKSHARE_NETEASE_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_NETEASE_RATE_LIMIT", "60"))
+    AKSHARE_HEXUN_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_HEXUN_RATE_LIMIT", "30"))
+    AKSHARE_CSINDEX_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_CSINDEX_RATE_LIMIT", "20"))
+    AKSHARE_JISILU_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_JISILU_RATE_LIMIT", "10"))
+    AKSHARE_DEFAULT_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_DEFAULT_RATE_LIMIT", "30"))
+
     # Vendors / adapters keys
     AV_API_KEY: Optional[str] = os.getenv("AKU_ALPHAVANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY")
     IB_HOST: str = os.getenv("AKU_IB_HOST", "127.0.0.1")

@@ -16,6 +16,7 @@ from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
 from .normalization import apply_and_validate
+from .rate_limiter import get_rate_limit_status
 
 app = FastAPI(title="AK Unified API", version="0.1.0")
 
@@ -45,6 +46,23 @@ async def rpc_datasets() -> Dict[str, Any]:
             "notes": getattr(spec, 'notes', None),
         })
     return {"items": items}
+
+
+@app.get("/rpc/rate-limits")
+async def rpc_rate_limits() -> Dict[str, Any]:
+    """Get current rate limiter status for all data sources."""
+    try:
+        status = await get_rate_limit_status()
+        return {
+            "rate_limiting_enabled": True,
+            "limiters": status
+        }
+    except Exception as e:
+        logger.error(f"Failed to get rate limit status: {e}")
+        return {
+            "rate_limiting_enabled": False,
+            "error": str(e)
+        }
 
 
 @app.get("/rpc/fetch")
@@ -104,7 +122,7 @@ async def rpc_fetch(
         if v is not None:
             params[k] = v
     dataset_id = _apply_adapter_variant(dataset_id, adapter)
-    env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback, use_cache=use_cache, use_blob=use_blob, store_blob=store_blob)
+    env = await fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback, use_cache=use_cache, use_blob=use_blob, store_blob=store_blob)
     return env.model_dump()
 
 
