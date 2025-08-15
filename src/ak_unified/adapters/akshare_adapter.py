@@ -35,7 +35,7 @@ def _ensure_symbol_column(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFr
 
 def _normalize_types(df: pd.DataFrame) -> pd.DataFrame:
     for c in df.columns:
-        if c in {"date", "datetime"}:
+        if c in {"date", "datetime", "symbol"}:
             continue
         try:
             df[c] = pd.to_numeric(df[c])
