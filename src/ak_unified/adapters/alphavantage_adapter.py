@@ -6,6 +6,7 @@ from urllib import request, parse
 import json
 import pandas as pd
 from ..config import settings
+from ..rate_limiter import acquire_rate_limit, acquire_daily_rate_limit
 
 
 class AVAdapterError(RuntimeError):
@@ -22,7 +23,11 @@ def _api_key() -> str:
     return key
 
 
-def _get(params: Dict[str, Any]) -> Dict[str, Any]:
+async def _get(params: Dict[str, Any]) -> Dict[str, Any]:
+    # Acquire rate limits before making request
+    await acquire_rate_limit('alphavantage')
+    await acquire_daily_rate_limit('alphavantage')
+    
     q = dict(params)
     q["apikey"] = _api_key()
     url = f"{_API}?{parse.urlencode(q)}"
@@ -149,12 +154,12 @@ def _parse_statement(obj: Dict[str, Any], key: str, symbol: str) -> pd.DataFrame
     return df
 
 
-def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
+async def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.DataFrame]:
     # US/HK daily
     if dataset_id.endswith('ohlcv_daily.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'TIME_SERIES_DAILY_ADJUSTED'
-        obj = _get({'function': func, 'symbol': symbol, 'outputsize': 'full'})
+        obj = await _get({'function': func, 'symbol': symbol, 'outputsize': 'full'})
         df = _parse_daily(obj)
         if not df.empty:
             df.insert(0, 'symbol', symbol)
@@ -165,7 +170,7 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
         freq = str(params.get('freq') or 'min5').lower()
         interval = {'min1':'1min','1':'1min','min5':'5min','5':'5min','min15':'15min','15':'15min','min30':'30min','30':'30min','min60':'60min','60':'60min'}.get(freq, '5min')
         func = 'TIME_SERIES_INTRADAY'
-        obj = _get({'function': func, 'symbol': symbol, 'interval': interval, 'outputsize': 'full'})
+        obj = await _get({'function': func, 'symbol': symbol, 'interval': interval, 'outputsize': 'full'})
         df = _parse_intraday(obj)
         if not df.empty:
             df.insert(0, 'symbol', symbol)
@@ -174,41 +179,41 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
     if dataset_id.endswith('quote.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'GLOBAL_QUOTE'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         df = _parse_global_quote(obj, symbol)
         return (func, df)
     # Macro US series
     if 'macro.us.cpi' in dataset_id:
         func = 'CPI'
-        obj = _get({'function': func})
+        obj = await _get({'function': func})
         return (func, _parse_series(obj))
     if 'macro.us.ppi' in dataset_id:
         func = 'PPI'
-        obj = _get({'function': func})
+        obj = await _get({'function': func})
         return (func, _parse_series(obj))
     if 'macro.us.pmi' in dataset_id:
         func = 'PMI'
-        obj = _get({'function': func})
+        obj = await _get({'function': func})
         return (func, _parse_series(obj))
     if 'macro.us.gdp' in dataset_id:
         func = 'REAL_GDP'
-        obj = _get({'function': func})
+        obj = await _get({'function': func})
         return (func, _parse_series(obj))
     if 'macro.us.unemployment' in dataset_id:
         func = 'UNEMPLOYMENT'
-        obj = _get({'function': func})
+        obj = await _get({'function': func})
         return (func, _parse_series(obj))
     # Fundamentals - Overview
     if dataset_id.endswith('fundamentals.overview.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'OVERVIEW'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         return (func, _parse_overview(obj, symbol))
     # Fundamentals - Income Statement (annual/quarterly combined; filter by period param if provided)
     if dataset_id.endswith('fundamentals.income_statement.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'INCOME_STATEMENT'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         period = (params.get('period') or '').lower()  # 'annual'|'quarterly'|''
         frames = []
         if period in ('', 'annual'):
@@ -221,7 +226,7 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
     if dataset_id.endswith('fundamentals.balance_sheet.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'BALANCE_SHEET'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         period = (params.get('period') or '').lower()
         frames = []
         if period in ('', 'annual'):
@@ -234,7 +239,7 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
     if dataset_id.endswith('fundamentals.cash_flow.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'CASH_FLOW'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         period = (params.get('period') or '').lower()
         frames = []
         if period in ('', 'annual'):
@@ -247,7 +252,7 @@ def call_alphavantage(dataset_id: str, params: Dict[str, Any]) -> Tuple[str, pd.
     if dataset_id.endswith('fundamentals.earnings.av'):
         symbol = (params.get('symbol') or '').upper()
         func = 'EARNINGS'
-        obj = _get({'function': func, 'symbol': symbol})
+        obj = await _get({'function': func, 'symbol': symbol})
         # flatten annual and quarterly EPS
         rows = []
         for it in (obj.get('annualEarnings') or []):

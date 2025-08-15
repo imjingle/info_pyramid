@@ -129,14 +129,14 @@ SSE topics:
 - Alpha Vantage（无需额外包，需 API Key）
   - 设置环境变量：`AKU_ALPHAVANTAGE_API_KEY` 或 `ALPHAVANTAGE_API_KEY`
   - US/HK: `securities.equity.{us|hk}.ohlcv_daily.av` / `.ohlcv_min.av` / `.quote.av`
-  - 速率限制较严格；Note/Error 情况将返回空结果
+  - 内置限速控制：免费版 5 请求/分钟，500 请求/天；Note/Error 情况将返回空结果
 - IBKR（可选安装 `uv sync --extra ibkr`；需运行 TWS/IB Gateway 并允许 API）
   - 连接配置：`AKU_IB_HOST`（默认 127.0.0.1）、`AKU_IB_PORT`（默认 7497）、`AKU_IB_CLIENT_ID`（默认 1）
   - US/HK 行情：`securities.equity.{us|hk}.ohlcv_daily.ibkr` / `.ohlcv_min.ibkr` / `.quote.ibkr`
   - 基本面：`securities.equity.us.fundamentals.{overview|statements|ratios|snapshot}.ibkr`
   - 说明：基本面通过 `reqFundamentalData`（CompanyOverview/ReportsFinStatements/Ratios/ReportSnapshot）；行情历史通过 `reqHistoricalData`，分钟历史受限，按频率和 duration 动态选择；实时快照用 `reqMktData`
 
-AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分钟级 `ohlcv_min` 由 yfinance/Alpha Vantage 互补。
+AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分钟级 `ohlcv_min` 由 yfinance/Alpha Vantage 互补。内置智能限速控制，根据数据源自动应用相应的限速策略。
 
 ## Normalization
 - 系统内置按数据集前缀的标准化规则：时间字段格式化、symbol 大写、常用数值字段转 float 等；并在响应和存储前统一应用
@@ -151,4 +151,5 @@ AkShare 对港股：已实现 `quote`、`ohlcv_daily`、财报/指标等；分�
   - DB/Cache: `AKU_DB_DSN`, `AKU_CACHE_TTL_SECONDS`, `AKU_CACHE_TTL_PER_DATASET`
   - Blob cache: `AKU_BLOB_ALLOW_PREFIXES`, `AKU_BLOB_MAX_BYTES`, `AKU_BLOB_COMPRESS`
   - Vendors: `AKU_ALPHAVANTAGE_API_KEY`, `AKU_IB_HOST`, `AKU_IB_PORT`, `AKU_IB_CLIENT_ID`
+  - Rate limiting: `AKU_RATE_LIMIT_ENABLED`, `AKU_AV_RATE_LIMIT_PER_MIN`, `AKU_AKSHARE_EASTMONEY_RATE_LIMIT` 等
   - Region mapping: `AKU_REGION_MAPPING` (JSON)
