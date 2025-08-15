@@ -631,7 +631,7 @@ async def rpc_stream_board(
         if not df_list:
             yield {"event": "error", "data": {"ok": False, "error": "No board data available"}}
             return
-        df = _pd.DataFrame(df_list)
+        df = pd.DataFrame(df_list)
         if df.empty:
             yield {"event": "error", "data": {"ok": False, "error": "Empty board data"}}
             return
@@ -658,7 +658,7 @@ async def rpc_stream_board(
                         try:
                             from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
                             tag, qdf = await fetch_realtime_quotes(symbols)
-                            q = _pd.DataFrame(qdf)
+                            q = pd.DataFrame(qdf)
                             if not q.empty:
                                 yield {"event": "update", "data": q.to_dict(orient='records')}
                                 continue
@@ -669,7 +669,7 @@ async def rpc_stream_board(
                         try:
                             ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
                             env = await fetch_data(ds, {})
-                            q = _pd.DataFrame(env.data)
+                            q = pd.DataFrame(env.data)
                             if not q.empty:
                                 q = q[q['symbol'].astype(str).isin(symbols)]
                                 if not q.empty:
@@ -717,7 +717,7 @@ async def rpc_stream_index(
         for idx in index_codes:
             try:
                 env = await fetch_data('market.index.constituents.qmt', {"index_code": idx})
-                df = _pd.DataFrame(env.data)
+                df = pd.DataFrame(env.data)
                 groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
             except Exception:
                 groups[idx] = []
@@ -747,7 +747,7 @@ async def rpc_stream_index(
                         try:
                             from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
                             tag, qdf = await fetch_realtime_quotes(symbols)
-                            q = _pd.DataFrame(qdf)
+                            q = pd.DataFrame(qdf)
                             if not q.empty:
                                 yield {"event": "update", "data": q.to_dict(orient='records')}
                                 continue
@@ -757,7 +757,7 @@ async def rpc_stream_index(
                     for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                         try:
                             ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
-                            dq = _pd.DataFrame(env.data)
+                            dq = pd.DataFrame(env.data)
                             if not dq.empty:
                                 dq = dq[dq['symbol'].astype(str).isin(symbols)]
                                 if not dq.empty:
@@ -798,21 +798,21 @@ async def rpc_board_playback(
 ) -> Dict[str, Any]:
     """Get board-level aggregated time series data."""
     # get constituents for each board
-    async def fetch_cons_one(b: str) -> _pd.DataFrame:
+    async def fetch_cons_one(b: str) -> pd.DataFrame:
         for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
             try:
                 ds = 'securities.board.cn.industry.cons' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.cons'
                 ds = ds if adpt == 'akshare' else f"{ds}.{adpt}"
                 try:
                     env = await fetch_data(ds, {"board_code": b})
-                    df = _pd.DataFrame(env.data)
+                    df = pd.DataFrame(env.data)
                     if not df.empty and 'symbol' in df.columns:
                         return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
                 except Exception:
                     continue
             except Exception:
                 continue
-        return _pd.DataFrame([])
+        return pd.DataFrame([])
     
     groups: Dict[str, list] = {}
     weights_map: Dict[str, Dict[str, float]] = {}
@@ -820,7 +820,7 @@ async def rpc_board_playback(
         df = await fetch_cons_one(b)
         groups[b] = df['symbol'].astype(str).tolist() if not df.empty else []
         if not df.empty and 'weight' in df.columns:
-            w = _pd.to_numeric(df['weight'], errors='coerce')
+            w = pd.to_numeric(df['weight'], errors='coerce')
             weights_map[b] = dict(zip(df['symbol'].astype(str), w))
     
     if not any(groups.values()):
@@ -883,17 +883,17 @@ async def rpc_index_playback(
 ) -> Dict[str, Any]:
     """Get index-level aggregated time series data."""
     # get constituents for each index
-    async def fetch_cons(idx: str) -> _pd.DataFrame:
+    async def fetch_cons(idx: str) -> pd.DataFrame:
         for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
             try:
                 ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
                 env = await fetch_data(ds, {"index_code": idx})
-                df = _pd.DataFrame(env.data)
+                df = pd.DataFrame(env.data)
                 if not df.empty and 'symbol' in df.columns:
                     return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
             except Exception:
                 continue
-        return _pd.DataFrame([])
+        return pd.DataFrame([])
     
     groups: Dict[str, list] = {}
     weights_map: Dict[str, Dict[str, float]] = {}
@@ -901,7 +901,7 @@ async def rpc_index_playback(
         df = await fetch_cons(idx)
         groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
         if not df.empty and 'weight' in df.columns:
-            w = _pd.to_numeric(df['weight'], errors='coerce')
+            w = pd.to_numeric(df['weight'], errors='coerce')
             weights_map[idx] = dict(zip(df['symbol'].astype(str), w))
     
     if not any(groups.values()):
