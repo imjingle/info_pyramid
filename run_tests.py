@@ -48,6 +48,11 @@ def main():
         ("tests/test_rate_limiter.py", "Rate Limiter Tests"),
         ("tests/test_akshare_functions.py", "AkShare Adapter Tests"),
         ("tests/test_alphavantage_adapter.py", "Alpha Vantage Adapter Tests"),
+        ("tests/test_qmt_adapter.py", "QMT Adapter Tests"),
+        ("tests/test_yfinance_adapter.py", "YFinance Adapter Tests"),
+        ("tests/test_efinance_adapter.py", "Efinance Adapter Tests"),
+        ("tests/test_api.py", "FastAPI Service Tests"),
+        ("tests/test_storage.py", "PostgreSQL Storage Tests"),
         ("tests/test_core.py", "Core Functionality Tests"),
         ("tests/test_datasets.py", "Dataset Tests"),
     ]
@@ -105,6 +110,38 @@ def main():
         print("    - Macroeconomic data (CPI, PMI)")
         print("    - Data parsing and normalization")
         print("    - Error handling and rate limiting")
+        print("\n  ✅ QMT Adapter")
+        print("    - Windows platform detection")
+        print("    - Module import and fallback")
+        print("    - Function mapping configuration")
+        print("    - Data conversion and normalization")
+        print("    - Error handling and validation")
+        print("\n  ✅ YFinance Adapter")
+        print("    - US and HK market support")
+        print("    - Symbol normalization")
+        print("    - Daily and minute data")
+        print("    - Real-time quotes")
+        print("    - Data transformation")
+        print("    - Error handling")
+        print("\n  ✅ Efinance Adapter")
+        print("    - Chinese market data")
+        print("    - Stock and fund data")
+        print("    - Historical and real-time data")
+        print("    - Data column mapping")
+        print("    - Error handling")
+        print("\n  ✅ FastAPI Service")
+        print("    - API endpoints and routing")
+        print("    - Request validation")
+        print("    - Response formatting")
+        print("    - Error handling")
+        print("    - Middleware functionality")
+        print("\n  ✅ PostgreSQL Storage")
+        print("    - Connection pool management")
+        print("    - CRUD operations")
+        print("    - Blob storage")
+        print("    - Cache management")
+        print("    - Data validation")
+        print("    - Performance optimization")
         print("\n  ✅ Core System")
         print("    - Data fetching and caching")
         print("    - Dataset registry and management")
