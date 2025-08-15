@@ -27,10 +27,24 @@ from .schemas.fund import (
     FundPortfolioRequest, FundHoldingsChangeRequest, FundTopHoldingsRequest,
     FundPortfolioResponse, FundHoldingsChangeResponse, FundTopHoldingsResponse
 )
+from .schemas.snowball import (
+    SnowballQuoteRequest, SnowballFinancialDataRequest, SnowballResearchReportRequest,
+    SnowballSentimentRequest, SnowballDiscussionRequest, SnowballMarketOverviewRequest,
+    SnowballQuoteResponse, SnowballFinancialDataResponse, SnowballResearchReportResponse,
+    SnowballSentimentResponse, SnowballDiscussionResponse, SnowballMarketOverviewResponse
+)
+from .schemas.easytrader import (
+    EasyTraderLoginRequest, EasyTraderTradingHistoryRequest, EasyTraderMarketDataRequest,
+    EasyTraderLoginResponse, EasyTraderAccountInfoResponse, EasyTraderPortfolioResponse,
+    EasyTraderTradingHistoryResponse, EasyTraderMarketDataResponse, EasyTraderFundInfoResponse,
+    EasyTraderRiskMetricsResponse
+)
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 from .adapters.earnings_calendar_adapter import call_earnings_calendar
 from .adapters.financial_data_adapter import call_financial_data
 from .adapters.fund_portfolio_adapter import call_fund_portfolio
+from .adapters.snowball_adapter import call_snowball
+from .adapters.easytrader_adapter import call_easytrader
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
 from .normalization import apply_and_validate
@@ -1555,4 +1569,769 @@ async def get_fund_top_holdings(
             top_holdings=None,
             market=market,
             source="fund_portfolio_adapter"
+        )
+
+
+# ============================================================================
+# Snowball API Endpoints
+# ============================================================================
+
+@app.get("/rpc/snowball/quote")
+async def get_snowball_quote(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, hk, us)")
+) -> SnowballQuoteResponse:
+    """Get stock quote from Snowball."""
+    try:
+        # Get stock quote data
+        function_name, df = await call_snowball(
+            'stock_quote',
+            {
+                'symbol': symbol,
+                'market': market
+            }
+        )
+        
+        if df.empty:
+            return SnowballQuoteResponse(
+                success=False,
+                symbol=symbol,
+                quote=None,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballQuote object
+        from .schemas.snowball import SnowballQuote
+        
+        row = df.iloc[0]
+        quote = SnowballQuote(
+            symbol=symbol,
+            market=market,
+            name=row.get('name', ''),
+            current=row.get('current', 0.0),
+            change=row.get('change', 0.0),
+            change_percent=row.get('change_percent', 0.0),
+            open=row.get('open', 0.0),
+            high=row.get('high', 0.0),
+            low=row.get('low', 0.0),
+            volume=row.get('volume', 0),
+            market_cap=row.get('market_cap', 0.0),
+            pe_ratio=row.get('pe_ratio', 0.0),
+            pb_ratio=row.get('pb_ratio', 0.0),
+            dividend_yield=row.get('dividend_yield', 0.0)
+        )
+        
+        return SnowballQuoteResponse(
+            success=True,
+            symbol=symbol,
+            quote=quote,
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball quote for {symbol}: {e}")
+        return SnowballQuoteResponse(
+            success=False,
+            symbol=symbol,
+            quote=None,
+            source="snowball_adapter"
+        )
+
+
+@app.get("/rpc/snowball/financial_data")
+async def get_snowball_financial_data(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    period: str = Query("annual", description="Period type (annual, quarterly)")
+) -> SnowballFinancialDataResponse:
+    """Get financial data from Snowball."""
+    try:
+        # Get financial data
+        function_name, df = await call_snowball(
+            'financial_data',
+            {
+                'symbol': symbol,
+                'market': market,
+                'period': period
+            }
+        )
+        
+        if df.empty:
+            return SnowballFinancialDataResponse(
+                success=False,
+                symbol=symbol,
+                financial_data=[],
+                total_count=0,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballFinancialData objects
+        from .schemas.snowball import SnowballFinancialData
+        
+        financial_data = []
+        for _, row in df.iterrows():
+            data = SnowballFinancialData(
+                symbol=symbol,
+                market=market,
+                period=row.get('period', ''),
+                report_date=row.get('report_date', ''),
+                revenue=row.get('revenue', 0.0),
+                net_profit=row.get('net_profit', 0.0),
+                eps=row.get('eps', 0.0),
+                roe=row.get('roe', 0.0),
+                roa=row.get('roa', 0.0),
+                gross_margin=row.get('gross_margin', 0.0),
+                net_margin=row.get('net_margin', 0.0),
+                debt_ratio=row.get('debt_ratio', 0.0),
+                current_ratio=row.get('current_ratio', 0.0)
+            )
+            financial_data.append(data)
+        
+        return SnowballFinancialDataResponse(
+            success=True,
+            symbol=symbol,
+            financial_data=financial_data,
+            total_count=len(financial_data),
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball financial data for {symbol}: {e}")
+        return SnowballFinancialDataResponse(
+            success=False,
+            symbol=symbol,
+            financial_data=[],
+            total_count=0,
+            source="snowball_adapter"
+        )
+
+
+@app.get("/rpc/snowball/research_reports")
+async def get_snowball_research_reports(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    limit: int = Query(20, description="Number of reports to return")
+) -> SnowballResearchReportResponse:
+    """Get research reports from Snowball."""
+    try:
+        # Get research reports
+        function_name, df = await call_snowball(
+            'research_reports',
+            {
+                'symbol': symbol,
+                'market': market,
+                'limit': limit
+            }
+        )
+        
+        if df.empty:
+            return SnowballResearchReportResponse(
+                success=False,
+                symbol=symbol,
+                reports=[],
+                total_count=0,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballResearchReport objects
+        from .schemas.snowball import SnowballResearchReport
+        
+        reports = []
+        for _, row in df.iterrows():
+            report = SnowballResearchReport(
+                symbol=symbol,
+                market=market,
+                title=row.get('title', ''),
+                author=row.get('author', ''),
+                institution=row.get('institution', ''),
+                publish_date=row.get('publish_date', ''),
+                rating=row.get('rating', ''),
+                target_price=row.get('target_price', 0.0),
+                summary=row.get('summary', ''),
+                url=row.get('url', '')
+            )
+            reports.append(report)
+        
+        return SnowballResearchReportResponse(
+            success=True,
+            symbol=symbol,
+            reports=reports,
+            total_count=len(reports),
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball research reports for {symbol}: {e}")
+        return SnowballResearchReportResponse(
+            success=False,
+            symbol=symbol,
+            reports=[],
+            total_count=0,
+            source="snowball_adapter"
+        )
+
+
+@app.get("/rpc/snowball/sentiment")
+async def get_snowball_sentiment(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    days: int = Query(7, description="Number of days to analyze")
+) -> SnowballSentimentResponse:
+    """Get sentiment data from Snowball."""
+    try:
+        # Get sentiment data
+        function_name, df = await call_snowball(
+            'sentiment',
+            {
+                'symbol': symbol,
+                'market': market,
+                'days': days
+            }
+        )
+        
+        if df.empty:
+            return SnowballSentimentResponse(
+                success=False,
+                symbol=symbol,
+                sentiment_data=[],
+                total_count=0,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballSentiment objects
+        from .schemas.snowball import SnowballSentiment
+        
+        sentiment_data = []
+        for _, row in df.iterrows():
+            sentiment = SnowballSentiment(
+                symbol=symbol,
+                market=market,
+                date=row.get('date', ''),
+                positive_count=row.get('positive_count', 0),
+                negative_count=row.get('negative_count', 0),
+                neutral_count=row.get('neutral_count', 0),
+                sentiment_score=row.get('sentiment_score', 0.0),
+                discussion_count=row.get('discussion_count', 0)
+            )
+            sentiment_data.append(sentiment)
+        
+        return SnowballSentimentResponse(
+            success=True,
+            symbol=symbol,
+            sentiment_data=sentiment_data,
+            total_count=len(sentiment_data),
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball sentiment for {symbol}: {e}")
+        return SnowballSentimentResponse(
+            success=False,
+            symbol=symbol,
+            sentiment_data=[],
+            total_count=0,
+            source="snowball_adapter"
+        )
+
+
+@app.get("/rpc/snowball/discussions")
+async def get_snowball_discussions(
+    symbol: str = Query(..., description="Stock symbol"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    limit: int = Query(50, description="Number of discussions to return")
+) -> SnowballDiscussionResponse:
+    """Get discussions from Snowball."""
+    try:
+        # Get discussions
+        function_name, df = await call_snowball(
+            'discussions',
+            {
+                'symbol': symbol,
+                'market': market,
+                'limit': limit
+            }
+        )
+        
+        if df.empty:
+            return SnowballDiscussionResponse(
+                success=False,
+                symbol=symbol,
+                discussions=[],
+                total_count=0,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballDiscussion objects
+        from .schemas.snowball import SnowballDiscussion
+        
+        discussions = []
+        for _, row in df.iterrows():
+            discussion = SnowballDiscussion(
+                symbol=symbol,
+                market=market,
+                title=row.get('title', ''),
+                content=row.get('content', ''),
+                author=row.get('author', ''),
+                publish_time=row.get('publish_time', ''),
+                like_count=row.get('like_count', 0),
+                comment_count=row.get('comment_count', 0),
+                share_count=row.get('share_count', 0),
+                sentiment=row.get('sentiment', ''),
+                url=row.get('url', '')
+            )
+            discussions.append(discussion)
+        
+        return SnowballDiscussionResponse(
+            success=True,
+            symbol=symbol,
+            discussions=discussions,
+            total_count=len(discussions),
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball discussions for {symbol}: {e}")
+        return SnowballDiscussionResponse(
+            success=False,
+            symbol=symbol,
+            discussions=[],
+            total_count=0,
+            source="snowball_adapter"
+        )
+
+
+@app.get("/rpc/snowball/market_overview")
+async def get_snowball_market_overview(
+    market: str = Query("cn", description="Market code (cn, hk, us)")
+) -> SnowballMarketOverviewResponse:
+    """Get market overview from Snowball."""
+    try:
+        # Get market overview
+        function_name, df = await call_snowball(
+            'market_overview',
+            {
+                'market': market
+            }
+        )
+        
+        if df.empty:
+            return SnowballMarketOverviewResponse(
+                success=False,
+                market=market,
+                overview=None,
+                source="snowball_adapter"
+            )
+        
+        # Convert DataFrame to SnowballMarketOverview object
+        from .schemas.snowball import SnowballMarketOverview
+        
+        row = df.iloc[0]
+        overview = SnowballMarketOverview(
+            market=market,
+            index_name=row.get('index_name', ''),
+            current_value=row.get('current_value', 0.0),
+            change=row.get('change', 0.0),
+            change_percent=row.get('change_percent', 0.0),
+            volume=row.get('volume', 0),
+            turnover=row.get('turnover', 0.0),
+            advance_count=row.get('advance_count', 0),
+            decline_count=row.get('decline_count', 0),
+            flat_count=row.get('flat_count', 0)
+        )
+        
+        return SnowballMarketOverviewResponse(
+            success=True,
+            market=market,
+            overview=overview,
+            source="snowball_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get Snowball market overview for {market}: {e}")
+        return SnowballMarketOverviewResponse(
+            success=False,
+            market=market,
+            overview=None,
+            source="snowball_adapter"
+        )
+
+
+# ============================================================================
+# EasyTrader API Endpoints
+# ============================================================================
+
+@app.post("/rpc/easytrader/login")
+async def easytrader_login(
+    request: EasyTraderLoginRequest
+) -> EasyTraderLoginResponse:
+    """Login to EasyTrader account."""
+    try:
+        # Login to EasyTrader
+        function_name, df = await call_easytrader(
+            'login',
+            {
+                'username': request.username,
+                'password': request.password,
+                'exe_path': request.exe_path,
+                'comm_password': request.comm_password
+            },
+            broker=request.broker
+        )
+        
+        success = df.iloc[0]['success'] if not df.empty else False
+        
+        return EasyTraderLoginResponse(
+            success=success,
+            broker=request.broker,
+            message="Login successful" if success else "Login failed"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to login to EasyTrader {request.broker}: {e}")
+        return EasyTraderLoginResponse(
+            success=False,
+            broker=request.broker,
+            message=f"Login failed: {str(e)}"
+        )
+
+
+@app.get("/rpc/easytrader/account_info")
+async def get_easytrader_account_info(
+    broker: str = Query(..., description="Broker name")
+) -> EasyTraderAccountInfoResponse:
+    """Get account information from EasyTrader."""
+    try:
+        # Get account info
+        function_name, df = await call_easytrader(
+            'account_info',
+            {},
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderAccountInfoResponse(
+                success=False,
+                broker=broker,
+                account_info=None,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderAccountInfo object
+        from .schemas.easytrader import EasyTraderAccountInfo
+        
+        row = df.iloc[0]
+        account_info = EasyTraderAccountInfo(
+            broker=broker,
+            total_assets=row.get('total_assets', 0.0),
+            available_cash=row.get('available_cash', 0.0),
+            market_value=row.get('market_value', 0.0),
+            frozen_cash=row.get('frozen_cash', 0.0),
+            total_profit_loss=row.get('total_profit_loss', 0.0),
+            today_profit_loss=row.get('today_profit_loss', 0.0)
+        )
+        
+        return EasyTraderAccountInfoResponse(
+            success=True,
+            broker=broker,
+            account_info=account_info,
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader account info for {broker}: {e}")
+        return EasyTraderAccountInfoResponse(
+            success=False,
+            broker=broker,
+            account_info=None,
+            source="easytrader_adapter"
+        )
+
+
+@app.get("/rpc/easytrader/portfolio")
+async def get_easytrader_portfolio(
+    broker: str = Query(..., description="Broker name")
+) -> EasyTraderPortfolioResponse:
+    """Get portfolio from EasyTrader."""
+    try:
+        # Get portfolio
+        function_name, df = await call_easytrader(
+            'portfolio',
+            {},
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderPortfolioResponse(
+                success=False,
+                broker=broker,
+                positions=[],
+                total_count=0,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderPosition objects
+        from .schemas.easytrader import EasyTraderPosition
+        
+        positions = []
+        for _, row in df.iterrows():
+            position = EasyTraderPosition(
+                broker=broker,
+                symbol=row.get('symbol', ''),
+                name=row.get('name', ''),
+                shares=row.get('shares', 0),
+                available_shares=row.get('available_shares', 0),
+                cost_price=row.get('cost_price', 0.0),
+                current_price=row.get('current_price', 0.0),
+                market_value=row.get('market_value', 0.0),
+                profit_loss=row.get('profit_loss', 0.0),
+                profit_loss_ratio=row.get('profit_loss_ratio', 0.0)
+            )
+            positions.append(position)
+        
+        return EasyTraderPortfolioResponse(
+            success=True,
+            broker=broker,
+            positions=positions,
+            total_count=len(positions),
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader portfolio for {broker}: {e}")
+        return EasyTraderPortfolioResponse(
+            success=False,
+            broker=broker,
+            positions=[],
+            total_count=0,
+            source="easytrader_adapter"
+        )
+
+
+@app.get("/rpc/easytrader/trading_history")
+async def get_easytrader_trading_history(
+    broker: str = Query(..., description="Broker name"),
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format")
+) -> EasyTraderTradingHistoryResponse:
+    """Get trading history from EasyTrader."""
+    try:
+        # Get trading history
+        function_name, df = await call_easytrader(
+            'trading_history',
+            {
+                'start_date': start_date,
+                'end_date': end_date
+            },
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderTradingHistoryResponse(
+                success=False,
+                broker=broker,
+                trades=[],
+                total_count=0,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderTrade objects
+        from .schemas.easytrader import EasyTraderTrade
+        
+        trades = []
+        for _, row in df.iterrows():
+            trade = EasyTraderTrade(
+                broker=broker,
+                trade_date=row.get('trade_date', ''),
+                symbol=row.get('symbol', ''),
+                name=row.get('name', ''),
+                trade_type=row.get('trade_type', ''),
+                shares=row.get('shares', 0),
+                price=row.get('price', 0.0),
+                amount=row.get('amount', 0.0),
+                commission=row.get('commission', 0.0),
+                stamp_duty=row.get('stamp_duty', 0.0)
+            )
+            trades.append(trade)
+        
+        return EasyTraderTradingHistoryResponse(
+            success=True,
+            broker=broker,
+            trades=trades,
+            total_count=len(trades),
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader trading history for {broker}: {e}")
+        return EasyTraderTradingHistoryResponse(
+            success=False,
+            broker=broker,
+            trades=[],
+            total_count=0,
+            source="easytrader_adapter"
+        )
+
+
+@app.get("/rpc/easytrader/market_data")
+async def get_easytrader_market_data(
+    broker: str = Query(..., description="Broker name"),
+    symbols: List[str] = Query(..., description="List of stock symbols")
+) -> EasyTraderMarketDataResponse:
+    """Get market data from EasyTrader."""
+    try:
+        # Get market data
+        function_name, df = await call_easytrader(
+            'market_data',
+            {
+                'symbols': symbols
+            },
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderMarketDataResponse(
+                success=False,
+                broker=broker,
+                market_data=[],
+                total_count=0,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderMarketData objects
+        from .schemas.easytrader import EasyTraderMarketData
+        
+        market_data = []
+        for _, row in df.iterrows():
+            data = EasyTraderMarketData(
+                broker=broker,
+                symbol=row.get('symbol', ''),
+                name=row.get('name', ''),
+                current_price=row.get('current_price', 0.0),
+                change=row.get('change', 0.0),
+                change_percent=row.get('change_percent', 0.0),
+                open=row.get('open', 0.0),
+                high=row.get('high', 0.0),
+                low=row.get('low', 0.0),
+                volume=row.get('volume', 0),
+                turnover=row.get('turnover', 0.0)
+            )
+            market_data.append(data)
+        
+        return EasyTraderMarketDataResponse(
+            success=True,
+            broker=broker,
+            market_data=market_data,
+            total_count=len(market_data),
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader market data for {broker}: {e}")
+        return EasyTraderMarketDataResponse(
+            success=False,
+            broker=broker,
+            market_data=[],
+            total_count=0,
+            source="easytrader_adapter"
+        )
+
+
+@app.get("/rpc/easytrader/fund_info")
+async def get_easytrader_fund_info(
+    broker: str = Query(..., description="Broker name")
+) -> EasyTraderFundInfoResponse:
+    """Get fund information from EasyTrader."""
+    try:
+        # Get fund info
+        function_name, df = await call_easytrader(
+            'fund_info',
+            {},
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderFundInfoResponse(
+                success=False,
+                broker=broker,
+                fund_info=None,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderFundInfo object
+        from .schemas.easytrader import EasyTraderFundInfo
+        
+        row = df.iloc[0]
+        fund_info = EasyTraderFundInfo(
+            broker=broker,
+            fund_code=row.get('fund_code', ''),
+            fund_name=row.get('fund_name', ''),
+            branch=row.get('branch', ''),
+            status=row.get('status', '')
+        )
+        
+        return EasyTraderFundInfoResponse(
+            success=True,
+            broker=broker,
+            fund_info=fund_info,
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader fund info for {broker}: {e}")
+        return EasyTraderFundInfoResponse(
+            success=False,
+            broker=broker,
+            fund_info=None,
+            source="easytrader_adapter"
+        )
+
+
+@app.get("/rpc/easytrader/risk_metrics")
+async def get_easytrader_risk_metrics(
+    broker: str = Query(..., description="Broker name")
+) -> EasyTraderRiskMetricsResponse:
+    """Get risk metrics from EasyTrader."""
+    try:
+        # Get risk metrics
+        function_name, df = await call_easytrader(
+            'risk_metrics',
+            {},
+            broker=broker
+        )
+        
+        if df.empty:
+            return EasyTraderRiskMetricsResponse(
+                success=False,
+                broker=broker,
+                risk_metrics=None,
+                source="easytrader_adapter"
+            )
+        
+        # Convert DataFrame to EasyTraderRiskMetrics object
+        from .schemas.easytrader import EasyTraderRiskMetrics
+        
+        row = df.iloc[0]
+        risk_metrics = EasyTraderRiskMetrics(
+            broker=broker,
+            var=row.get('var', 0.0),
+            max_drawdown=row.get('max_drawdown', 0.0),
+            sharpe_ratio=row.get('sharpe_ratio', 0.0),
+            volatility=row.get('volatility', 0.0),
+            beta=row.get('beta', 0.0)
+        )
+        
+        return EasyTraderRiskMetricsResponse(
+            success=True,
+            broker=broker,
+            risk_metrics=risk_metrics,
+            source="easytrader_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get EasyTrader risk metrics for {broker}: {e}")
+        return EasyTraderRiskMetricsResponse(
+            success=False,
+            broker=broker,
+            risk_metrics=None,
+            source="easytrader_adapter"
         )
