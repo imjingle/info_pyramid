@@ -62,6 +62,22 @@ class RateLimiterManager:
                 60.0
             )
             
+            # Snowball rate limiters
+            self._limiters['snowball_default'] = AsyncLimiter(
+                settings.SNOWBALL_DEFAULT_RATE_LIMIT,
+                60.0
+            )
+            
+            # EasyTrader rate limiters
+            self._limiters['easytrader_default'] = AsyncLimiter(
+                settings.EASYTRADER_DEFAULT_RATE_LIMIT,
+                60.0
+            )
+            self._limiters['easytrader_login'] = AsyncLimiter(
+                settings.EASYTRADER_LOGIN_RATE_LIMIT,
+                60.0
+            )
+            
             logger.info(f"Rate limiting initialized with {len(self._limiters)} limiters")
         else:
             logger.info("Rate limiting disabled")

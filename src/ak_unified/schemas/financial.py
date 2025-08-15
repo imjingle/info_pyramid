@@ -255,7 +255,7 @@ class FinancialStatementResponse(BaseModel):
     success: bool = Field(..., description="Request success status")
     symbol: str = Field(..., description="Stock symbol")
     statement_type: str = Field(..., description="Type of financial statement")
-    statement: Union[BalanceSheet, IncomeStatement, CashFlowStatement] = Field(..., description="Financial statement data")
+    statement: Optional[Union[BalanceSheet, IncomeStatement, CashFlowStatement]] = Field(None, description="Financial statement data")
     period: str = Field(..., description="Period type")
     market: str = Field(..., description="Market code")
     source: str = Field(..., description="Data source")

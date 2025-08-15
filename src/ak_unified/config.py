@@ -45,6 +45,13 @@ class Settings:
     AKSHARE_CSINDEX_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_CSINDEX_RATE_LIMIT", "20"))
     AKSHARE_JISILU_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_JISILU_RATE_LIMIT", "10"))
     AKSHARE_DEFAULT_RATE_LIMIT: int = int(os.getenv("AKU_AKSHARE_DEFAULT_RATE_LIMIT", "30"))
+    
+    # Snowball rate limits (requests per minute)
+    SNOWBALL_DEFAULT_RATE_LIMIT: int = int(os.getenv("AKU_SNOWBALL_DEFAULT_RATE_LIMIT", "30"))
+    
+    # EasyTrader rate limits (requests per minute)
+    EASYTRADER_DEFAULT_RATE_LIMIT: int = int(os.getenv("AKU_EASYTRADER_DEFAULT_RATE_LIMIT", "20"))
+    EASYTRADER_LOGIN_RATE_LIMIT: int = int(os.getenv("AKU_EASYTRADER_LOGIN_RATE_LIMIT", "5"))
 
     # Vendors / adapters keys
     AV_API_KEY: Optional[str] = os.getenv("AKU_ALPHAVANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY")

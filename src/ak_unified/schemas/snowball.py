@@ -192,7 +192,7 @@ class SnowballQuoteResponse(BaseModel):
     
     success: bool = Field(..., description="Request success status")
     symbol: str = Field(..., description="Stock symbol")
-    quote: SnowballQuote = Field(..., description="Stock quote data")
+    quote: Optional[SnowballQuote] = Field(None, description="Stock quote data")
     source: str = Field(..., description="Data source")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
     
@@ -271,7 +271,7 @@ class SnowballMarketOverviewResponse(BaseModel):
     
     success: bool = Field(..., description="Request success status")
     market: str = Field(..., description="Market code")
-    overview: SnowballMarketOverview = Field(..., description="Market overview data")
+    overview: Optional[SnowballMarketOverview] = Field(None, description="Market overview data")
     source: str = Field(..., description="Data source")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
     

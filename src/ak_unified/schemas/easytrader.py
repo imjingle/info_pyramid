@@ -169,7 +169,7 @@ class EasyTraderAccountInfoResponse(BaseModel):
     
     success: bool = Field(..., description="Request success status")
     broker: str = Field(..., description="Broker name")
-    account_info: EasyTraderAccountInfo = Field(..., description="Account information")
+    account_info: Optional[EasyTraderAccountInfo] = Field(None, description="Account information")
     source: str = Field(..., description="Data source")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
     
@@ -232,7 +232,7 @@ class EasyTraderFundInfoResponse(BaseModel):
     
     success: bool = Field(..., description="Request success status")
     broker: str = Field(..., description="Broker name")
-    fund_info: EasyTraderFundInfo = Field(..., description="Fund information")
+    fund_info: Optional[EasyTraderFundInfo] = Field(None, description="Fund information")
     source: str = Field(..., description="Data source")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
     
@@ -247,7 +247,7 @@ class EasyTraderRiskMetricsResponse(BaseModel):
     
     success: bool = Field(..., description="Request success status")
     broker: str = Field(..., description="Broker name")
-    risk_metrics: EasyTraderRiskMetrics = Field(..., description="Risk metrics")
+    risk_metrics: Optional[EasyTraderRiskMetrics] = Field(None, description="Risk metrics")
     source: str = Field(..., description="Data source")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
     
