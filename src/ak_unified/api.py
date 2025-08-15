@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, Optional, List
 
+import pandas as pd
 from fastapi import FastAPI, Query, Body
 from sse_starlette.sse import EventSourceResponse
 from starlette.responses import JSONResponse
@@ -390,10 +391,25 @@ async def admin_cache_purge(
     return {"enabled": True, "deleted": int(deleted)}
 
 @app.get("/admin/cache/blob")
-async def admin_cache_blob_get(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...)) -> Dict[str, Any]:
+async def admin_cache_blob_get(
+    dataset_id: str = Query(...),
+    symbol: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+) -> Dict[str, Any]:
     pool = await _get_pool()
     if pool is None:
         return {"enabled": False}
+    
+    # Build params from individual query parameters
+    params = {}
+    if symbol:
+        params["symbol"] = symbol
+    if start:
+        params["start"] = start
+    if end:
+        params["end"] = end
+    
     res = await _blob_fetch(pool, dataset_id, params)
     if res is None:
         return {"enabled": True, "found": False}
@@ -403,7 +419,6 @@ async def admin_cache_blob_get(dataset_id: str = Query(...), params: Dict[str, A
 @app.post("/admin/cache/blob/purge")
 async def admin_cache_blob_purge(
     dataset_id: Optional[str] = Query(None),
-    params: Optional[Dict[str, Any]] = Query(None),
     dataset_prefix: Optional[str] = Query(None),
     updated_after: Optional[str] = Query(None),
     updated_before: Optional[str] = Query(None),
@@ -411,16 +426,37 @@ async def admin_cache_blob_purge(
     pool = await _get_pool()
     if pool is None:
         return {"enabled": False, "deleted": 0}
-    deleted = await _blob_purge(pool, dataset_id, params, dataset_prefix=dataset_prefix, updated_after=updated_after, updated_before=updated_before)
+    deleted = await _blob_purge(pool, dataset_id, None, dataset_prefix=dataset_prefix, updated_after=updated_after, updated_before=updated_before)
     return {"enabled": True, "deleted": int(deleted)}
 
 @app.get("/rpc/replay")
-async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Query(...), format: str = Query("raw")) -> Dict[str, Any]:
+async def rpc_replay(
+    dataset_id: str = Query(...),
+    symbol: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    format: str = Query("raw")
+) -> Dict[str, Any]:
     pool = await _get_pool()
     if pool is None:
         return {"ok": False, "error": "cache disabled"}
     
     try:
+        # Build params from individual query parameters
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        
+        # Get blob data
+        res = await _blob_fetch(pool, dataset_id, params)
+        if res is None:
+            return {"ok": False, "error": "blob not found"}
+        
+        raw_obj, meta = res
         # normalize blob
         blob_records = apply_and_validate(dataset_id, raw_obj if isinstance(raw_obj, list) else [])
         # live fetch (bypass cache/blob to compare against upstream)
@@ -456,15 +492,28 @@ async def rpc_replay(dataset_id: str = Query(...), params: Dict[str, Any] = Quer
 @app.get("/rpc/stream")
 async def rpc_stream(
     dataset_id: str = Query(...),
-    params: Dict[str, Any] = Query(...),
+    symbol: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
     interval_sec: int = Query(60),
     max_updates: Optional[int] = Query(None),
     adapter: Optional[str] = Query(None),
+    symbols: Optional[List[str]] = Query(None),
+    ak_function: Optional[str] = Query(None),
 ) -> EventSourceResponse:
     """Stream real-time data updates."""
     async def gen():
         update_count = 0
         try:
+            # Build params from individual query parameters
+            params = {}
+            if symbol:
+                params["symbol"] = symbol
+            if start:
+                params["start"] = start
+            if end:
+                params["end"] = end
+            
             # Check if this is a real-time dataset
             if adapter == 'qmt' and dataset_id.endswith('quote') and symbols:
                 try:
@@ -611,7 +660,8 @@ async def rpc_stream_board(
                             tag, qdf = await fetch_realtime_quotes(symbols)
                             q = _pd.DataFrame(qdf)
                             if not q.empty:
-                                return q
+                                yield {"event": "update", "data": q.to_dict(orient='records')}
+                                continue
                         except Exception:
                             pass
                     # fallback to other adapters
@@ -623,7 +673,8 @@ async def rpc_stream_board(
                             if not q.empty:
                                 q = q[q['symbol'].astype(str).isin(symbols)]
                                 if not q.empty:
-                                    return q
+                                    yield {"event": "update", "data": q.to_dict(orient='records')}
+                                    continue
                         except Exception:
                             continue
                     failures += 1
@@ -698,7 +749,8 @@ async def rpc_stream_index(
                             tag, qdf = await fetch_realtime_quotes(symbols)
                             q = _pd.DataFrame(qdf)
                             if not q.empty:
-                                return q
+                                yield {"event": "update", "data": q.to_dict(orient='records')}
+                                continue
                         except Exception:
                             pass
                     # fallback to other adapters
@@ -709,7 +761,8 @@ async def rpc_stream_index(
                             if not dq.empty:
                                 dq = dq[dq['symbol'].astype(str).isin(symbols)]
                                 if not dq.empty:
-                                    return dq
+                                    yield {"event": "update", "data": dq.to_dict(orient='records')}
+                                    continue
                         except Exception:
                             continue
                     failures += 1
@@ -745,7 +798,7 @@ async def rpc_board_playback(
 ) -> Dict[str, Any]:
     """Get board-level aggregated time series data."""
     # get constituents for each board
-    def fetch_cons_one(b: str) -> _pd.DataFrame:
+    async def fetch_cons_one(b: str) -> _pd.DataFrame:
         for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
             try:
                 ds = 'securities.board.cn.industry.cons' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.cons'
@@ -830,7 +883,7 @@ async def rpc_index_playback(
 ) -> Dict[str, Any]:
     """Get index-level aggregated time series data."""
     # get constituents for each index
-    def fetch_cons(idx: str) -> _pd.DataFrame:
+    async def fetch_cons(idx: str) -> _pd.DataFrame:
         for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
             try:
                 ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
