@@ -88,62 +88,70 @@ async def fetch_data(
     is_realtime = _is_realtime(params)
 
     # Try cache first
-    cached = []
+    cached: List[Dict[str, Any]] = []
     if use_cache and not is_realtime:
         try:
-            pool = _get_pool()
+            pool = await _get_pool()
             if pool:
                 cached = await _db_fetch(pool, dataset_id, params)
         except Exception:
             pass
 
     # Fetch from upstream if needed
-    new_records = []
+    new_records: List[Dict[str, Any]] = []
     if not cached or is_realtime:
         if spec.adapter == "akshare":
-            fn_used, df = await call_akshare(spec.ak_functions, ak_params, field_mapping=spec.field_mapping, allow_fallback=allow_fallback, function_name=ak_function)
+            fn_used, df = await call_akshare(
+                spec.ak_functions,
+                ak_params,
+                field_mapping=spec.field_mapping,
+                allow_fallback=allow_fallback,
+                function_name=ak_function,
+            )
         elif spec.adapter == "baostock":
             from .adapters.baostock_adapter import call_baostock
-            fn_used, df = call_baostock(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_baostock, dataset_id, ak_params)
         elif spec.adapter == "mootdx":
             from .adapters.mootdx_adapter import call_mootdx
-            fn_used, df = call_mootdx(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_mootdx, dataset_id, ak_params)
         elif spec.adapter == "qmt":
             from .adapters.qmt_adapter import call_qmt
-            fn_used, df = call_qmt(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_qmt, dataset_id, ak_params)
         elif spec.adapter == "efinance":
             from .adapters.efinance_adapter import call_efinance
-            fn_used, df = call_efinance(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_efinance, dataset_id, ak_params)
         elif spec.adapter == "qstock":
             from .adapters.qstock_adapter import call_qstock
-            fn_used, df = call_qstock(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_qstock, dataset_id, ak_params)
         elif spec.adapter == "adata":
             from .adapters.adata_adapter import call_adata
-            fn_used, df = call_adata(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_adata, dataset_id, ak_params)
         elif spec.adapter == "yfinance":
             from .adapters.yfinance_adapter import call_yfinance
-            fn_used, df = call_yfinance(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_yfinance, dataset_id, ak_params)
         elif spec.adapter == "alphavantage":
             from .adapters.alphavantage_adapter import call_alphavantage
             fn_used, df = await call_alphavantage(dataset_id, ak_params)
         elif spec.adapter == "ibkr":
             from .adapters.ibkr_adapter import call_ibkr
-            fn_used, df = call_ibkr(dataset_id, ak_params)
+            fn_used, df = await asyncio.to_thread(call_ibkr, dataset_id, ak_params)
         else:
             raise RuntimeError(f"Unknown adapter: {spec.adapter}")
         logger.bind(dataset=dataset_id, adapter=spec.adapter, fn=fn_used).info("fetched upstream span")
         df = _postprocess(spec, df, ak_params)
-        part_records = df.to_dict(orient="records")
-        new_records.extend(part_records)
+        new_records.extend(df.to_dict(orient="records"))
+
     records = cached + new_records
+
     # upsert
     if new_records:
         try:
-            pool = _get_pool()
+            pool = await _get_pool()
             if pool:
                 await _db_upsert(pool, dataset_id, new_records)
         except Exception:
             pass
+
     env = _envelope(spec, params, records)
     env.ak_function = 'cache+source'
     env.data_source = spec.source
@@ -152,20 +160,28 @@ async def fetch_data(
 
 # ------------- Convenience APIs -------------
 
-def get_ohlcv(symbol: str, start: Optional[str] = None, end: Optional[str] = None, adjust: str = "none", *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+async def get_ohlcv(
+    symbol: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    adjust: str = "none",
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> DataEnvelope:
     params = {"symbol": symbol, "start": start, "end": end, "adjust": adjust}
-    return fetch_data("securities.equity.cn.ohlcv_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
+    return await fetch_data("securities.equity.cn.ohlcv_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_market_quote(*, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
-    return fetch_data("securities.equity.cn.quote", {}, ak_function=ak_function, allow_fallback=allow_fallback)
+async def get_market_quote(*, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+    return await fetch_data("securities.equity.cn.quote", {}, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_index_constituents(index_code: str, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
-    return fetch_data("market.index.constituents", {"index_code": index_code}, ak_function=ak_function, allow_fallback=allow_fallback)
+async def get_index_constituents(index_code: str, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+    return await fetch_data("market.index.constituents", {"index_code": index_code}, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_macro_indicator(region: str, indicator_id: str, **kwargs: Any) -> DataEnvelope:
+async def get_macro_indicator(region: str, indicator_id: str, **kwargs: Any) -> DataEnvelope:
     key = (region.upper(), indicator_id.lower())
     mapping = {
         ("CN", "ppi"): "macro.cn.ppi",
@@ -177,18 +193,33 @@ def get_macro_indicator(region: str, indicator_id: str, **kwargs: Any) -> DataEn
         raise KeyError(f"Macro indicator not mapped: region={region} indicator_id={indicator_id}")
     ak_function = kwargs.pop("ak_function", None)
     allow_fallback = kwargs.pop("allow_fallback", False)
-    return fetch_data(dataset, kwargs, ak_function=ak_function, allow_fallback=allow_fallback)
+    return await fetch_data(dataset, kwargs, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_fund_nav(fund_code: str, start: Optional[str] = None, end: Optional[str] = None, *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+async def get_fund_nav(
+    fund_code: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> DataEnvelope:
     is_etf_like = fund_code.isdigit() and fund_code.startswith(("5", "1"))
     dataset = "securities.fund.cn.nav" if is_etf_like else "securities.fund.cn.nav_open"
     params: Dict[str, Any] = {"fund_code": fund_code}
     if dataset == "securities.fund.cn.nav":
         params.update({"start": start, "end": end})
-    return fetch_data(dataset, params, ak_function=ak_function, allow_fallback=allow_fallback)
+    return await fetch_data(dataset, params, ak_function=ak_function, allow_fallback=allow_fallback)
 
 
-def get_ohlcva(symbol: str, start: Optional[str] = None, end: Optional[str] = None, adjust: str = "none", *, ak_function: Optional[str] = None, allow_fallback: bool = False) -> DataEnvelope:
+async def get_ohlcva(
+    symbol: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    adjust: str = "none",
+    *,
+    ak_function: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> DataEnvelope:
     params = {"symbol": symbol, "start": start, "end": end, "adjust": adjust}
-    return fetch_data("securities.equity.cn.ohlcva_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)
+    return await fetch_data("securities.equity.cn.ohlcva_daily", params, ak_function=ak_function, allow_fallback=allow_fallback)

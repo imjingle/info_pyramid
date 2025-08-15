@@ -158,8 +158,7 @@ async def rpc_fetch_async(
             "data_source": "baostock",
         }
         return env
-    loop = asyncio.get_running_loop()
-    env = await loop.run_in_executor(None, lambda: fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback))
+    env = await fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=allow_fallback)
     return env.model_dump()
 
 
@@ -184,8 +183,7 @@ async def rpc_batch(
                     "data_source": "baostock",
                     "data": df.to_dict(orient='records'),
                 }
-            loop = asyncio.get_running_loop()
-            env = await loop.run_in_executor(None, lambda: fetch_data(ds, params, ak_function=ak_function, allow_fallback=allow_fallback))
+            env = await fetch_data(ds, params, ak_function=ak_function, allow_fallback=allow_fallback)
             return {"dataset": ds, "ok": True, "ak_function": env.ak_function, "data_source": env.data_source, "data": env.data}
         except Exception as e:  # noqa: BLE001
             return {"dataset": ds, "ok": False, "error": str(e)}
@@ -204,7 +202,7 @@ async def rpc_ohlcv(
     allow_fallback: bool = Query(False),
 ):
     # ohlcv uses the CN akshare dataset; for other adapters use /rpc/fetch with adapter
-    env = get_ohlcv(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
+    env = await get_ohlcv(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 
@@ -217,7 +215,7 @@ async def rpc_ohlcva(
     ak_function: Optional[str] = Query(None),
     allow_fallback: bool = Query(False),
 ):
-    env = get_ohlcva(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
+    env = await get_ohlcva(symbol, start=start, end=end, adjust=adjust, ak_function=ak_function, allow_fallback=allow_fallback)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 @app.get("/rpc/agg/board_snapshot")
@@ -231,7 +229,7 @@ async def rpc_board_snapshot(
     params: Dict[str, Any] = {"board_kind": board_kind, "boards": boards, "topn": topn, "weight_by": weight_by}
     if adapter_priority:
         params["adapter_priority"] = adapter_priority
-    env = fetch_data("market.cn.board_aggregation.snapshot", params)
+    env = await fetch_data("market.cn.board_aggregation.snapshot", params)
     logger.info("rpc_board_snapshot served")
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
@@ -245,7 +243,7 @@ async def rpc_index_snapshot(
     params: Dict[str, Any] = {"index_codes": index_codes, "topn": topn, "weight_by": weight_by}
     if adapter_priority:
         params["adapter_priority"] = adapter_priority
-    env = fetch_data("market.cn.index_aggregation.snapshot", params)
+    env = await fetch_data("market.cn.index_aggregation.snapshot", params)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 @app.get("/rpc/agg/playback")
@@ -258,7 +256,7 @@ async def rpc_agg_playback(
     window_n: int = Query(10),
 ):
     params: Dict[str, Any] = {"entity_type": entity_type, "ids": ids, "start": start, "end": end, "freq": freq, "window_n": window_n}
-    env = fetch_data("market.cn.aggregation.playback", params)
+    env = await fetch_data("market.cn.aggregation.playback", params)
     return JSONResponse(content=env.model_dump(mode="json"), media_type="application/json")
 
 @app.get("/admin/cache/status")
@@ -370,7 +368,7 @@ async def rpc_replay_diff(
     # normalize blob
     blob_records = apply_and_validate(dataset_id, raw_obj if isinstance(raw_obj, list) else [])
     # live fetch (bypass cache/blob to compare against upstream)
-    env = fetch_data(dataset_id, params, use_cache=False, use_blob=False)
+    env = await fetch_data(dataset_id, params, use_cache=False, use_blob=False)
     live_records = env.data
 
     def key_of(r: Dict[str, Any]):
@@ -434,9 +432,9 @@ async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_functio
     if adapter == 'qmt' and dataset_id.endswith('quote') and symbols:
         try:
             from .adapters.qmt_adapter import subscribe_quotes, unsubscribe_quotes, fetch_realtime_quotes  # type: ignore
-            subscribe_quotes(symbols)
+            await subscribe_quotes(symbols)
             while True:
-                tag, df = fetch_realtime_quotes(symbols)
+                tag, df = await fetch_realtime_quotes(symbols)
                 payload = {
                     "schema_version": "1.0.0",
                     "provider": "qmt",
@@ -449,7 +447,7 @@ async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_functio
                 await asyncio.sleep(interval_sec)
         finally:
             try:
-                unsubscribe_quotes(symbols)
+                await unsubscribe_quotes(symbols)
             except Exception:
                 pass
     # generic path
@@ -468,7 +466,7 @@ async def _polling_generator(dataset_id: str, params: Dict[str, Any], ak_functio
             }
             yield {"event": "update", "data": payload}
         else:
-            env = fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=False)
+            env = await fetch_data(dataset_id, params, ak_function=ak_function, allow_fallback=False)
             yield {"event": "update", "data": env.model_dump()}
         await asyncio.sleep(interval_sec)
 
@@ -529,11 +527,11 @@ async def rpc_quote(ak_function: Optional[str] = None, allow_fallback: bool = Fa
     if adapter == 'qmt':
         try:
             from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
-            tag, df = fetch_realtime_quotes(symbols)
+            tag, df = await fetch_realtime_quotes(symbols)
             return {"schema_version": "1.0.0", "provider": "qmt", "dataset": "securities.equity.cn.quote.qmt", "params": {"symbols": symbols}, "data": df.to_dict(orient='records'), "ak_function": tag, "data_source": "qmt"}
         except Exception as e:  # noqa: BLE001
             return {"schema_version": "1.0.0", "provider": "qmt", "error": str(e)}
-    env = get_market_quote(ak_function=ak_function, allow_fallback=allow_fallback)
+    env = await get_market_quote(ak_function=ak_function, allow_fallback=allow_fallback)
     return env.model_dump()
 
 
@@ -546,7 +544,7 @@ async def qmt_status() -> Dict[str, Any]:
 async def qmt_subscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
     try:
         from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
-        tag = subscribe_quotes(symbols)
+        tag = await subscribe_quotes(symbols)
         return {"ok": True, "ak_function": tag}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
@@ -556,7 +554,7 @@ async def qmt_subscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
 async def qmt_unsubscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
     try:
         from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
-        tag = unsubscribe_quotes(symbols)
+        tag = await unsubscribe_quotes(symbols)
         return {"ok": True, "ak_function": tag}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
@@ -566,7 +564,7 @@ async def qmt_unsubscribe(symbols: List[str] = Body(...)) -> Dict[str, Any]:
 async def qmt_quotes(symbols: Optional[List[str]] = Query(None)) -> Dict[str, Any]:
     try:
         from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
-        tag, df = fetch_realtime_quotes(symbols)
+        tag, df = await fetch_realtime_quotes(symbols)
         return {"ok": True, "ak_function": tag, "data": df.to_dict(orient='records')}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
@@ -585,14 +583,14 @@ async def topic_qmt_board(
     include_percentiles: bool = True,
 ) -> EventSourceResponse:
     async def gen():
-        status = test_qmt_import()
+        status = await test_qmt_import()
         if not status.get("ok") and (not adapter_priority or adapter_priority and adapter_priority[0] == 'qmt'):
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
         ds = 'securities.board.cn.industry.qmt' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.qmt'
         # allow fallback to akshare if qmt board dataset unsupported
         try:
-            env = fetch_data(ds, {})
+            env = await fetch_data(ds, {})
             df_list = env.data
         except Exception:
             df_list = []
@@ -615,7 +613,7 @@ async def topic_qmt_board(
             if 'qmt' in pref:
                 try:
                     from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
-                    tag, qdf = fetch_realtime_quotes(symbols)
+                    tag, qdf = await fetch_realtime_quotes(symbols)
                     q = _pd.DataFrame(qdf)
                     if not q.empty:
                         return q
@@ -627,7 +625,7 @@ async def topic_qmt_board(
                     continue
                 try:
                     ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
-                    env = fetch_data(ds, {})
+                    env = await fetch_data(ds, {})
                     q = _pd.DataFrame(env.data)
                     if not q.empty:
                         q = q[q['symbol'].astype(str).isin(symbols)]
@@ -645,7 +643,7 @@ async def topic_qmt_board(
             if not adapter_priority or 'qmt' in adapter_priority:
                 try:
                     from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
-                    subscribe_quotes(sym_set)
+                    await subscribe_quotes(sym_set)
                 except Exception:
                     pass
             failures = 0
@@ -751,7 +749,7 @@ async def topic_qmt_board(
         finally:
             try:
                 from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
-                unsubscribe_quotes(sym_set)
+                await unsubscribe_quotes(sym_set)
             except Exception:
                 pass
     return EventSourceResponse(gen())
@@ -769,7 +767,7 @@ async def topic_qmt_index(
     include_percentiles: bool = True,
 ) -> EventSourceResponse:
     async def gen():
-        status = test_qmt_import()
+        status = await test_qmt_import()
         if not status.get("ok") and (not adapter_priority or adapter_priority and adapter_priority[0] == 'qmt'):
             yield {"event": "error", "data": {"ok": False, "error": status.get("error"), "is_windows": status.get("is_windows")}}
             return
@@ -780,7 +778,7 @@ async def topic_qmt_index(
         groups: Dict[str, list] = {}
         for idx in index_codes:
             try:
-                env = fetch_data('market.index.constituents.qmt', {"index_code": idx})
+                env = await fetch_data('market.index.constituents.qmt', {"index_code": idx})
                 df = _pd.DataFrame(env.data)
                 groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
             except Exception:
@@ -792,7 +790,7 @@ async def topic_qmt_index(
             if 'qmt' in pref:
                 try:
                     from .adapters.qmt_adapter import fetch_realtime_quotes  # type: ignore
-                    tag, qdf = fetch_realtime_quotes(symbols)
+                    tag, qdf = await fetch_realtime_quotes(symbols)
                     q = _pd.DataFrame(qdf)
                     if not q.empty:
                         return q
@@ -803,7 +801,7 @@ async def topic_qmt_index(
                     continue
                 try:
                     ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
-                    env = fetch_data(ds, {})
+                    env = await fetch_data(ds, {})
                     dq = _pd.DataFrame(env.data)
                     if not dq.empty:
                         dq = dq[dq['symbol'].astype(str).isin(symbols)]
@@ -816,7 +814,7 @@ async def topic_qmt_index(
         if not adapter_priority or 'qmt' in adapter_priority:
             try:
                 from .adapters.qmt_adapter import subscribe_quotes  # type: ignore
-                subscribe_quotes(sym_set)
+                await subscribe_quotes(sym_set)
             except Exception:
                 pass
         rolling = {idx: {"avg_pct": deque(maxlen=window_n), "winners": deque(maxlen=window_n)} for idx in groups.keys()}
@@ -909,7 +907,7 @@ async def topic_qmt_index(
         finally:
             try:
                 from .adapters.qmt_adapter import unsubscribe_quotes  # type: ignore
-                unsubscribe_quotes(sym_set)
+                await unsubscribe_quotes(sym_set)
             except Exception:
                 pass
     return EventSourceResponse(gen())
@@ -937,7 +935,7 @@ async def topic_board(
                 ds = 'securities.board.cn.industry.cons' if board_kind.lower().startswith('i') else 'securities.board.cn.concept.cons'
                 ds = ds if adpt == 'akshare' else f"{ds}.{adpt}"
                 try:
-                    env = fetch_data(ds, {"board_code": b})
+                    env = await fetch_data(ds, {"board_code": b})
                     df = _pd.DataFrame(env.data)
                     if not df.empty and 'symbol' in df.columns:
                         return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
@@ -948,7 +946,7 @@ async def topic_board(
         groups: Dict[str, list] = {}
         weights_map: Dict[str, Dict[str, float]] = {}
         for b in boards:
-            df = fetch_cons_one(b)
+            df = await fetch_cons_one(b)
             groups[b] = df['symbol'].astype(str).tolist() if not df.empty else []
             if not df.empty and 'weight' in df.columns:
                 w = _pd.to_numeric(df['weight'], errors='coerce')
@@ -962,7 +960,7 @@ async def topic_board(
             for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
                 try:
-                    env = fetch_data(ds, {})
+                    env = await fetch_data(ds, {})
                     q = _pd.DataFrame(env.data)
                     if not q.empty and 'symbol' in q.columns:
                         q = q[q['symbol'].astype(str).isin(symbols)]
@@ -1095,7 +1093,7 @@ async def topic_index(
             for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'market.index.constituents' if adpt == 'akshare' else f'market.index.constituents.{adpt}'
                 try:
-                    env = fetch_data(ds, {"index_code": idx})
+                    env = await fetch_data(ds, {"index_code": idx})
                     df = _pd.DataFrame(env.data)
                     if not df.empty and 'symbol' in df.columns:
                         return df[['symbol','weight']] if 'weight' in df.columns else df[['symbol']]
@@ -1106,7 +1104,7 @@ async def topic_index(
 
         weights_map: Dict[str, Dict[str, float]] = {}
         for idx in index_codes:
-            df = fetch_cons(idx)
+            df = await fetch_cons(idx)
             groups[idx] = df['symbol'].astype(str).tolist() if not df.empty else []
             if not df.empty and 'weight' in df.columns:
                 w = _pd.to_numeric(df['weight'], errors='coerce')
@@ -1120,7 +1118,7 @@ async def topic_index(
             for adpt in (adapter_priority or ['akshare','ibkr','qstock','efinance','adata']):
                 ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
                 try:
-                    env = fetch_data(ds, {})
+                    env = await fetch_data(ds, {})
                     q = _pd.DataFrame(env.data)
                     if not q.empty and 'symbol' in q.columns:
                         q = q[q['symbol'].astype(str).isin(symbols)]
