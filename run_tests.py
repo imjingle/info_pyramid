@@ -55,6 +55,7 @@ def main():
         ("tests/test_storage.py", "PostgreSQL Storage Tests"),
         ("tests/test_core.py", "Core Functionality Tests"),
         ("tests/test_datasets.py", "Dataset Tests"),
+        ("tests/test_performance.py", "Performance Benchmark Tests"),
     ]
     
     results = []

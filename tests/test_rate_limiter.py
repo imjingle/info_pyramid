@@ -6,7 +6,7 @@ These tests validate the rate limiting system for different data sources.
 import pytest
 import asyncio
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from ak_unified.rate_limiter import (
     RateLimiterManager,
     acquire_rate_limit,
@@ -91,7 +91,7 @@ class TestRateLimiterAcquisition:
             
             # Mock the rate limiter manager
             with patch('ak_unified.rate_limiter.rate_limiter') as mock_manager:
-                mock_manager.acquire.return_value = None
+                mock_manager.acquire = AsyncMock(return_value=None)
                 
                 await acquire_rate_limit('alphavantage')
                 
@@ -104,7 +104,7 @@ class TestRateLimiterAcquisition:
             mock_settings.RATE_LIMIT_ENABLED = True
             
             with patch('ak_unified.rate_limiter.rate_limiter') as mock_manager:
-                mock_manager.acquire.return_value = None
+                mock_manager.acquire = AsyncMock(return_value=None)
                 
                 await acquire_rate_limit('akshare', 'eastmoney')
                 
@@ -117,7 +117,7 @@ class TestRateLimiterAcquisition:
             mock_settings.RATE_LIMIT_ENABLED = True
             
             with patch('ak_unified.rate_limiter.rate_limiter') as mock_manager:
-                mock_manager.acquire_daily.return_value = None
+                mock_manager.acquire_daily = AsyncMock(return_value=None)
                 
                 await acquire_daily_rate_limit('alphavantage')
                 
@@ -130,6 +130,9 @@ class TestRateLimiterAcquisition:
             mock_settings.RATE_LIMIT_ENABLED = False
             
             with patch('ak_unified.rate_limiter.rate_limiter') as mock_manager:
+                mock_manager.acquire = AsyncMock(return_value=None)
+                mock_manager.acquire_daily = AsyncMock(return_value=None)
+                
                 await acquire_rate_limit('alphavantage')
                 await acquire_daily_rate_limit('alphavantage')
                 
@@ -164,7 +167,7 @@ class TestRateLimiterStatus:
                         'has_capacity': True
                     }
                 }
-                mock_manager.get_limiter_status.return_value = mock_status
+                mock_manager.get_limiter_status = AsyncMock(return_value=mock_status)
                 
                 status = await get_rate_limit_status()
                 

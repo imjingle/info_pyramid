@@ -541,8 +541,11 @@ class TestAlphaVantageErrorHandling:
             )
             
             # Should return the error message as-is
-            assert "Note" in result
-            assert "rate limit" in result["Note"].lower()
+            # Should return the error message as-is
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+            assert "Note" in result[1]
+            assert "rate limit" in result[1]["Note"].lower()
     
     @pytest.mark.asyncio
     async def test_invalid_json_error(self):
@@ -568,6 +571,10 @@ class TestAlphaVantageRateLimiting:
         with patch('ak_unified.adapters.alphavantage_adapter._get') as mock_get, \
              patch('ak_unified.adapters.alphavantage_adapter.acquire_rate_limit') as mock_rate_limit, \
              patch('ak_unified.adapters.alphavantage_adapter.acquire_daily_rate_limit') as mock_daily_limit:
+            
+            # Mock the rate limiting functions to return None (success)
+            mock_rate_limit.return_value = None
+            mock_daily_limit.return_value = None
             
             mock_get.return_value = {
                 "Time Series (Daily)": {
