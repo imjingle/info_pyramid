@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any, Dict, Optional, List
 
 import pandas as pd
@@ -16,11 +17,11 @@ from .dispatcher import (
 from .registry import REGISTRY
 from .schemas.envelope import DataEnvelope, Pagination
 from .schemas.events import (
-    EarningsCalendarRequest, EarningsForecastRequest,
+    EarningsEvent, EarningsForecast, EarningsCalendarRequest, EarningsForecastRequest,
     EarningsCalendarResponse, EarningsForecastResponse
 )
 from .schemas.financial import (
-    FinancialDataRequest, FinancialIndicatorsResponse, 
+    FinancialIndicator, FinancialDataRequest, FinancialIndicatorsResponse, 
     FinancialStatementResponse, FinancialRatioResponse
 )
 from .schemas.fund import (
@@ -862,7 +863,7 @@ async def rpc_board_playback(
         ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
         try:
             env = await fetch_data(ds, {})
-            q = _pd.DataFrame(env.data)
+            q = pd.DataFrame(env.data)
             if not q.empty and 'symbol' in q.columns:
                 q = q[q['symbol'].astype(str).isin(symbols)]
                 if not q.empty:
@@ -943,7 +944,7 @@ async def rpc_index_playback(
         ds = 'securities.equity.cn.quote' if adpt == 'akshare' else f'securities.equity.cn.quote.{adpt}'
         try:
             env = await fetch_data(ds, {})
-            dq = _pd.DataFrame(env.data)
+            dq = pd.DataFrame(env.data)
             if not dq.empty and 'symbol' in dq.columns:
                 dq = dq[dq['symbol'].astype(str).isin(symbols)]
                 if not dq.empty:
