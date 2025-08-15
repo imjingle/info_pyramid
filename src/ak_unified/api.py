@@ -23,9 +23,14 @@ from .schemas.financial import (
     FinancialDataRequest, FinancialIndicatorsResponse, 
     FinancialStatementResponse, FinancialRatioResponse
 )
+from .schemas.fund import (
+    FundPortfolioRequest, FundHoldingsChangeRequest, FundTopHoldingsRequest,
+    FundPortfolioResponse, FundHoldingsChangeResponse, FundTopHoldingsResponse
+)
 from .adapters.qmt_adapter import test_qmt_import  # type: ignore
 from .adapters.earnings_calendar_adapter import call_earnings_calendar
 from .adapters.financial_data_adapter import call_financial_data
+from .adapters.fund_portfolio_adapter import call_fund_portfolio
 from .storage import get_pool as _get_pool, cache_stats as _cache_stats, purge_records as _purge_records  # type: ignore
 from .storage import fetch_blob_snapshot as _blob_fetch, upsert_blob_snapshot as _blob_upsert, purge_blob as _blob_purge  # type: ignore
 from .normalization import apply_and_validate
@@ -1306,4 +1311,248 @@ async def get_financial_statements(
             period=period,
             market=market,
             source="financial_data_adapter"
+        )
+
+
+# ============================================================================
+# Fund Portfolio API Endpoints
+# ============================================================================
+
+@app.get("/rpc/fund/portfolio")
+async def get_fund_portfolio(
+    fund_code: str = Query(..., description="Fund code"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    report_date: Optional[str] = Query(None, description="Report date in YYYY-MM-DD format")
+) -> FundPortfolioResponse:
+    """Get fund portfolio holdings."""
+    try:
+        # Get fund portfolio data
+        function_name, df = await call_fund_portfolio(
+            'fund_portfolio',
+            {
+                'fund_code': fund_code,
+                'market': market,
+                'report_date': report_date
+            }
+        )
+        
+        if df.empty:
+            return FundPortfolioResponse(
+                success=False,
+                fund_code=fund_code,
+                fund_name="",
+                portfolio=None,
+                total_holdings=0,
+                market=market,
+                source="fund_portfolio_adapter"
+            )
+        
+        # Convert DataFrame to FundPortfolio object
+        from .schemas.fund import FundPortfolio, StockHolding
+        
+        # Get fund name from first row
+        fund_name = df.iloc[0].get('fund_name', '') if not df.empty else ''
+        
+        # Convert holdings
+        stock_holdings = []
+        for _, row in df.iterrows():
+            holding = StockHolding(
+                symbol=row.get('symbol', ''),
+                stock_name=row.get('stock_name', ''),
+                shares=row.get('shares', 0),
+                market_value=row.get('market_value', 0.0),
+                percentage=row.get('percentage', 0.0),
+                change_shares=row.get('shares_change'),
+                change_percentage=row.get('percentage_change'),
+                report_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else datetime.now()
+            )
+            stock_holdings.append(holding)
+        
+        portfolio = FundPortfolio(
+            fund_code=fund_code,
+            fund_name=fund_name,
+            report_date=datetime.now(),
+            total_assets=None,
+            stock_holdings=stock_holdings,
+            source="fund_portfolio_adapter",
+            market=market
+        )
+        
+        return FundPortfolioResponse(
+            success=True,
+            fund_code=fund_code,
+            fund_name=fund_name,
+            portfolio=portfolio,
+            total_holdings=len(stock_holdings),
+            market=market,
+            source="fund_portfolio_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get fund portfolio for {fund_code}: {e}")
+        return FundPortfolioResponse(
+            success=False,
+            fund_code=fund_code,
+            fund_name="",
+            portfolio=None,
+            total_holdings=0,
+            market=market,
+            source="fund_portfolio_adapter"
+        )
+
+
+@app.get("/rpc/fund/holdings_change")
+async def get_fund_holdings_change(
+    fund_code: str = Query(..., description="Fund code"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format")
+) -> FundHoldingsChangeResponse:
+    """Get fund holdings changes over time."""
+    try:
+        # Get fund holdings changes data
+        function_name, df = await call_fund_portfolio(
+            'fund_holdings_change',
+            {
+                'fund_code': fund_code,
+                'market': market,
+                'start_date': start_date,
+                'end_date': end_date
+            }
+        )
+        
+        if df.empty:
+            return FundHoldingsChangeResponse(
+                success=False,
+                fund_code=fund_code,
+                fund_name="",
+                changes=[],
+                total_changes=0,
+                market=market,
+                source="fund_portfolio_adapter"
+            )
+        
+        # Convert DataFrame to FundHoldingsChange objects
+        from .schemas.fund import FundHoldingsChange
+        
+        changes = []
+        for _, row in df.iterrows():
+            change = FundHoldingsChange(
+                fund_code=fund_code,
+                fund_name=row.get('fund_name', ''),
+                symbol=row.get('symbol', ''),
+                stock_name=row.get('stock_name', ''),
+                report_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else datetime.now(),
+                shares=row.get('shares', 0),
+                market_value=row.get('market_value', 0.0),
+                percentage=row.get('percentage', 0.0),
+                shares_change=row.get('shares_change', 0),
+                value_change=row.get('value_change', 0.0),
+                percentage_change=row.get('percentage_change', 0.0),
+                source="fund_portfolio_adapter",
+                market=market
+            )
+            changes.append(change)
+        
+        return FundHoldingsChangeResponse(
+            success=True,
+            fund_code=fund_code,
+            fund_name=changes[0].fund_name if changes else "",
+            changes=changes,
+            total_changes=len(changes),
+            market=market,
+            source="fund_portfolio_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get fund holdings change for {fund_code}: {e}")
+        return FundHoldingsChangeResponse(
+            success=False,
+            fund_code=fund_code,
+            fund_name="",
+            changes=[],
+            total_changes=0,
+            market=market,
+            source="fund_portfolio_adapter"
+        )
+
+
+@app.get("/rpc/fund/top_holdings")
+async def get_fund_top_holdings(
+    fund_code: str = Query(..., description="Fund code"),
+    market: str = Query("cn", description="Market code (cn, hk, us)"),
+    top_n: int = Query(10, description="Number of top holdings to return")
+) -> FundTopHoldingsResponse:
+    """Get fund top holdings."""
+    try:
+        # Get fund top holdings data
+        function_name, df = await call_fund_portfolio(
+            'fund_top_holdings',
+            {
+                'fund_code': fund_code,
+                'market': market,
+                'top_n': top_n
+            }
+        )
+        
+        if df.empty:
+            return FundTopHoldingsResponse(
+                success=False,
+                fund_code=fund_code,
+                fund_name="",
+                top_holdings=None,
+                market=market,
+                source="fund_portfolio_adapter"
+            )
+        
+        # Convert DataFrame to FundTopHoldings object
+        from .schemas.fund import FundTopHoldings, StockHolding
+        
+        # Get fund name from first row
+        fund_name = df.iloc[0].get('fund_name', '') if not df.empty else ''
+        
+        # Convert top holdings
+        top_holdings_list = []
+        total_percentage = 0.0
+        
+        for _, row in df.iterrows():
+            holding = StockHolding(
+                symbol=row.get('symbol', ''),
+                stock_name=row.get('stock_name', ''),
+                shares=row.get('shares', 0),
+                market_value=row.get('market_value', 0.0),
+                percentage=row.get('percentage', 0.0),
+                report_date=pd.to_datetime(row.get('report_date')) if row.get('report_date') else datetime.now()
+            )
+            top_holdings_list.append(holding)
+            total_percentage += row.get('percentage', 0.0)
+        
+        top_holdings = FundTopHoldings(
+            fund_code=fund_code,
+            fund_name=fund_name,
+            report_date=datetime.now(),
+            top_holdings=top_holdings_list,
+            total_percentage=total_percentage,
+            source="fund_portfolio_adapter",
+            market=market
+        )
+        
+        return FundTopHoldingsResponse(
+            success=True,
+            fund_code=fund_code,
+            fund_name=fund_name,
+            top_holdings=top_holdings,
+            market=market,
+            source="fund_portfolio_adapter"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get fund top holdings for {fund_code}: {e}")
+        return FundTopHoldingsResponse(
+            success=False,
+            fund_code=fund_code,
+            fund_name="",
+            top_holdings=None,
+            market=market,
+            source="fund_portfolio_adapter"
         )

@@ -137,47 +137,78 @@ class FinancialDataAdapter:
     ) -> pd.DataFrame:
         """Get financial indicators for US stock."""
         try:
-            await acquire_rate_limit('alphavantage', 'default')
+            await acquire_rate_limit('akshare', 'eastmoney')
             
-            # Get income statement for key metrics
-            income_df = await call_alphavantage(
-                'INCOME_STATEMENT',
-                {'symbol': symbol}
+            # Get US financial analysis indicators from EastMoney
+            df = await call_akshare(
+                ['stock_financial_us_analysis_indicator_em'],
+                {'symbol': symbol},
+                function_name='stock_financial_us_analysis_indicator_em'
             )
             
-            if not income_df.empty:
-                # Calculate key financial indicators
-                df = self._calculate_us_financial_indicators(income_df, period)
+            if not df.empty:
+                # Filter by period
+                if period == 'quarterly':
+                    df = df[df['report_date'].str.contains('Q', na=False)]
+                else:  # annual
+                    df = df[~df['report_date'].str.contains('Q', na=False)]
                 
                 # Filter by specific indicators if requested
                 if indicators:
-                    available_indicators = [col for col in df.columns if col not in ['symbol', 'fiscalDateEnding']]
+                    available_indicators = [col for col in df.columns if col not in ['symbol', 'report_date']]
                     selected_indicators = [ind for ind in indicators if ind in available_indicators]
                     if selected_indicators:
-                        df = df[['symbol', 'fiscalDateEnding'] + selected_indicators]
+                        df = df[['symbol', 'report_date'] + selected_indicators]
                 
+                df = self._standardize_us_indicator_columns(df)
                 return df
                 
         except Exception as e:
-            logger.warning(f"Failed to get Alpha Vantage financial indicators for {symbol}: {e}")
-        
-        # Fallback to Yahoo Finance
-        try:
-            await acquire_rate_limit('yfinance', 'default')
+            logger.warning(f"Failed to get EastMoney US financial indicators for {symbol}: {e}")
             
-            # Get financial data from Yahoo Finance
-            ticker_data = await call_yfinance(
-                ['financials', 'balance_sheet'],
-                {'symbol': symbol},
-                function_name='financials'
-            )
-            
-            if not ticker_data.empty:
-                df = self._calculate_yahoo_financial_indicators(ticker_data, period)
-                return df
+            # Fallback to Alpha Vantage
+            try:
+                await acquire_rate_limit('alphavantage', 'default')
                 
-        except Exception as e:
-            logger.warning(f"Failed to get Yahoo Finance financial indicators for {symbol}: {e}")
+                # Get income statement for key metrics
+                income_df = await call_alphavantage(
+                    'INCOME_STATEMENT',
+                    {'symbol': symbol}
+                )
+                
+                if not income_df.empty:
+                    # Calculate key financial indicators
+                    df = self._calculate_us_financial_indicators(income_df, period)
+                    
+                    # Filter by specific indicators if requested
+                    if indicators:
+                        available_indicators = [col for col in df.columns if col not in ['symbol', 'fiscalDateEnding']]
+                        selected_indicators = [ind for ind in indicators if ind in available_indicators]
+                        if selected_indicators:
+                            df = df[['symbol', 'fiscalDateEnding'] + selected_indicators]
+                    
+                    return df
+                    
+            except Exception as e2:
+                logger.warning(f"Failed to get Alpha Vantage financial indicators for {symbol}: {e2}")
+            
+            # Fallback to Yahoo Finance
+            try:
+                await acquire_rate_limit('yfinance', 'default')
+                
+                # Get financial data from Yahoo Finance
+                ticker_data = await call_yfinance(
+                    ['financials', 'balance_sheet'],
+                    {'symbol': symbol},
+                    function_name='financials'
+                )
+                
+                if not ticker_data.empty:
+                    df = self._calculate_yahoo_financial_indicators(ticker_data, period)
+                    return df
+                    
+            except Exception as e3:
+                logger.warning(f"Failed to get Yahoo Finance financial indicators for {symbol}: {e3}")
         
         return pd.DataFrame()
     
@@ -188,8 +219,40 @@ class FinancialDataAdapter:
         indicators: Optional[List[str]]
     ) -> pd.DataFrame:
         """Get financial indicators for Hong Kong stock."""
-        # Similar to CN but may have different data structure
-        return await self._get_cn_financial_indicators(symbol, period, indicators)
+        try:
+            await acquire_rate_limit('akshare', 'eastmoney')
+            
+            # Get HK financial analysis indicators from EastMoney
+            df = await call_akshare(
+                ['stock_financial_hk_analysis_indicator_em'],
+                {'symbol': symbol},
+                function_name='stock_financial_hk_analysis_indicator_em'
+            )
+            
+            if not df.empty:
+                # Filter by period
+                if period == 'quarterly':
+                    df = df[df['report_date'].str.contains('Q', na=False)]
+                else:  # annual
+                    df = df[~df['report_date'].str.contains('Q', na=False)]
+                
+                # Filter by specific indicators if requested
+                if indicators:
+                    available_indicators = [col for col in df.columns if col not in ['symbol', 'report_date']]
+                    selected_indicators = [ind for ind in indicators if ind in available_indicators]
+                    if selected_indicators:
+                        df = df[['symbol', 'report_date'] + selected_indicators]
+                
+                df = self._standardize_hk_indicator_columns(df)
+                return df
+                
+        except Exception as e:
+            logger.warning(f"Failed to get EastMoney HK financial indicators for {symbol}: {e}")
+            
+            # Fallback to CN method
+            return await self._get_cn_financial_indicators(symbol, period, indicators)
+        
+        return pd.DataFrame()
     
     async def get_financial_statements(
         self, 
@@ -280,30 +343,31 @@ class FinancialDataAdapter:
     ) -> pd.DataFrame:
         """Get financial statements for US stock."""
         try:
-            await acquire_rate_limit('alphavantage', 'default')
+            await acquire_rate_limit('akshare', 'eastmoney')
             
-            # Map statement type to Alpha Vantage function
+            # Map statement type to EastMoney function
             function_mapping = {
-                'balance_sheet': 'BALANCE_SHEET',
-                'income_statement': 'INCOME_STATEMENT',
-                'cash_flow': 'CASH_FLOW'
+                'balance_sheet': 'stock_financial_us_report_em',
+                'income_statement': 'stock_financial_us_report_em',
+                'cash_flow': 'stock_financial_us_report_em'
             }
             
             function_name = function_mapping.get(statement_type)
             if not function_name:
                 raise FinancialDataError(f"Unsupported statement type: {statement_type}")
             
-            df = await call_alphavantage(
-                function_name,
-                {'symbol': symbol}
+            df = await call_akshare(
+                [function_name],
+                {'symbol': symbol, 'statement_type': statement_type},
+                function_name=function_name
             )
             
             if not df.empty:
                 # Filter by period
                 if period == 'quarterly':
-                    df = df[df['fiscalPeriod'].str.contains('Q', na=False)]
+                    df = df[df['report_date'].str.contains('Q', na=False)]
                 else:  # annual
-                    df = df[~df['fiscalPeriod'].str.contains('Q', na=False)]
+                    df = df[~df['report_date'].str.contains('Q', na=False)]
                 
                 # Standardize column names
                 df = self._standardize_us_statement_columns(df, statement_type)
@@ -311,35 +375,70 @@ class FinancialDataAdapter:
                 return df
                 
         except Exception as e:
-            logger.warning(f"Failed to get Alpha Vantage {statement_type} for {symbol}: {e}")
-        
-        # Fallback to Yahoo Finance
-        try:
-            await acquire_rate_limit('yfinance', 'default')
+            logger.warning(f"Failed to get EastMoney US {statement_type} for {symbol}: {e}")
             
-            # Map statement type to Yahoo Finance function
-            function_mapping = {
-                'balance_sheet': 'balance_sheet',
-                'income_statement': 'financials',
-                'cash_flow': 'cashflow'
-            }
-            
-            function_name = function_mapping.get(statement_type)
-            if not function_name:
-                raise FinancialDataError(f"Unsupported statement type: {statement_type}")
-            
-            df = await call_yfinance(
-                [function_name],
-                {'symbol': symbol},
-                function_name=function_name
-            )
-            
-            if not df.empty:
-                df = self._standardize_yahoo_statement_columns(df, statement_type)
-                return df
+            # Fallback to Alpha Vantage
+            try:
+                await acquire_rate_limit('alphavantage', 'default')
                 
-        except Exception as e:
-            logger.warning(f"Failed to get Yahoo Finance {statement_type} for {symbol}: {e}")
+                # Map statement type to Alpha Vantage function
+                function_mapping = {
+                    'balance_sheet': 'BALANCE_SHEET',
+                    'income_statement': 'INCOME_STATEMENT',
+                    'cash_flow': 'CASH_FLOW'
+                }
+                
+                function_name = function_mapping.get(statement_type)
+                if not function_name:
+                    raise FinancialDataError(f"Unsupported statement type: {statement_type}")
+                
+                df = await call_alphavantage(
+                    function_name,
+                    {'symbol': symbol}
+                )
+                
+                if not df.empty:
+                    # Filter by period
+                    if period == 'quarterly':
+                        df = df[df['fiscalPeriod'].str.contains('Q', na=False)]
+                    else:  # annual
+                        df = df[~df['fiscalPeriod'].str.contains('Q', na=False)]
+                    
+                    # Standardize column names
+                    df = self._standardize_us_statement_columns(df, statement_type)
+                    
+                    return df
+                    
+            except Exception as e2:
+                logger.warning(f"Failed to get Alpha Vantage {statement_type} for {symbol}: {e2}")
+            
+            # Fallback to Yahoo Finance
+            try:
+                await acquire_rate_limit('yfinance', 'default')
+                
+                # Map statement type to Yahoo Finance function
+                function_mapping = {
+                    'balance_sheet': 'balance_sheet',
+                    'income_statement': 'financials',
+                    'cash_flow': 'cashflow'
+                }
+                
+                function_name = function_mapping.get(statement_type)
+                if not function_name:
+                    raise FinancialDataError(f"Unsupported statement type: {statement_type}")
+                
+                df = await call_yfinance(
+                    [function_name],
+                    {'symbol': symbol},
+                    function_name=function_name
+                )
+                
+                if not df.empty:
+                    df = self._standardize_yahoo_statement_columns(df, statement_type)
+                    return df
+                    
+            except Exception as e3:
+                logger.warning(f"Failed to get Yahoo Finance {statement_type} for {symbol}: {e3}")
         
         return pd.DataFrame()
     
@@ -350,8 +449,45 @@ class FinancialDataAdapter:
         period: str
     ) -> pd.DataFrame:
         """Get financial statements for Hong Kong stock."""
-        # Similar to CN but may have different data structure
-        return await self._get_cn_financial_statements(symbol, statement_type, period)
+        try:
+            await acquire_rate_limit('akshare', 'eastmoney')
+            
+            # Map statement type to EastMoney function
+            function_mapping = {
+                'balance_sheet': 'stock_financial_hk_report_em',
+                'income_statement': 'stock_financial_hk_report_em',
+                'cash_flow': 'stock_financial_hk_report_em'
+            }
+            
+            function_name = function_mapping.get(statement_type)
+            if not function_name:
+                raise FinancialDataError(f"Unsupported statement type: {statement_type}")
+            
+            df = await call_akshare(
+                [function_name],
+                {'symbol': symbol, 'statement_type': statement_type},
+                function_name=function_name
+            )
+            
+            if not df.empty:
+                # Filter by period
+                if period == 'quarterly':
+                    df = df[df['report_date'].str.contains('Q', na=False)]
+                else:  # annual
+                    df = df[~df['report_date'].str.contains('Q', na=False)]
+                
+                # Standardize column names
+                df = self._standardize_hk_statement_columns(df, statement_type)
+                
+                return df
+                
+        except Exception as e:
+            logger.warning(f"Failed to get EastMoney HK {statement_type} for {symbol}: {e}")
+            
+            # Fallback to CN method
+            return await self._get_cn_financial_statements(symbol, statement_type, period)
+        
+        return pd.DataFrame()
     
     def _calculate_us_financial_indicators(self, income_df: pd.DataFrame, period: str) -> pd.DataFrame:
         """Calculate financial indicators from US income statement."""
@@ -392,6 +528,56 @@ class FinancialDataAdapter:
     
     def _standardize_cn_indicator_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names for China financial indicators."""
+        column_mapping = {
+            'symbol': 'symbol',
+            'report_date': 'report_date',
+            'ROE': 'roe',
+            'ROA': 'roa',
+            'ROIC': 'roic',
+            'gross_profit_margin': 'gross_margin',
+            'net_profit_margin': 'net_margin',
+            'debt_to_equity': 'debt_to_equity',
+            'current_ratio': 'current_ratio',
+            'quick_ratio': 'quick_ratio',
+            'inventory_turnover': 'inventory_turnover',
+            'receivables_turnover': 'receivables_turnover',
+            'asset_turnover': 'asset_turnover'
+        }
+        
+        # Rename columns that exist
+        existing_cols = {k: v for k, v in column_mapping.items() if k in df.columns}
+        if existing_cols:
+            df = df.rename(columns=existing_cols)
+        
+        return df
+    
+    def _standardize_us_indicator_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Standardize column names for US financial indicators."""
+        column_mapping = {
+            'symbol': 'symbol',
+            'report_date': 'report_date',
+            'ROE': 'roe',
+            'ROA': 'roa',
+            'ROIC': 'roic',
+            'gross_profit_margin': 'gross_margin',
+            'net_profit_margin': 'net_margin',
+            'debt_to_equity': 'debt_to_equity',
+            'current_ratio': 'current_ratio',
+            'quick_ratio': 'quick_ratio',
+            'inventory_turnover': 'inventory_turnover',
+            'receivables_turnover': 'receivables_turnover',
+            'asset_turnover': 'asset_turnover'
+        }
+        
+        # Rename columns that exist
+        existing_cols = {k: v for k, v in column_mapping.items() if k in df.columns}
+        if existing_cols:
+            df = df.rename(columns=existing_cols)
+        
+        return df
+    
+    def _standardize_hk_indicator_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Standardize column names for Hong Kong financial indicators."""
         column_mapping = {
             'symbol': 'symbol',
             'report_date': 'report_date',
@@ -495,6 +681,11 @@ class FinancialDataAdapter:
             df = df.rename(columns=existing_cols)
         
         return df
+    
+    def _standardize_hk_statement_columns(self, df: pd.DataFrame, statement_type: str) -> pd.DataFrame:
+        """Standardize column names for Hong Kong financial statements."""
+        # Similar to CN but may have different column names
+        return self._standardize_cn_statement_columns(df, statement_type)
     
     def _standardize_yahoo_statement_columns(self, df: pd.DataFrame, statement_type: str) -> pd.DataFrame:
         """Standardize column names for Yahoo Finance statements."""

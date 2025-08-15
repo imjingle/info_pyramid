@@ -104,21 +104,21 @@ class EarningsCalendarAdapter:
         except Exception as e:
             logger.warning(f"Failed to get EastMoney earnings calendar: {e}")
             
-            # Fallback to Sina
+            # Fallback to Baidu for report time
             try:
-                await acquire_rate_limit('akshare', 'sina')
+                await acquire_rate_limit('akshare', 'baidu')
                 df = await call_akshare(
-                    ['stock_financial_report_sina'],
+                    ['news_report_time_baidu'],
                     {},
-                    function_name='stock_financial_report_sina'
+                    function_name='news_report_time_baidu'
                 )
                 
                 if not df.empty:
-                    df = self._standardize_cn_columns(df)
+                    df = self._standardize_baidu_columns(df)
                     return df
                     
             except Exception as e2:
-                logger.warning(f"Failed to get Sina earnings calendar: {e2}")
+                logger.warning(f"Failed to get Baidu earnings calendar: {e2}")
         
         return pd.DataFrame()
     
@@ -130,48 +130,74 @@ class EarningsCalendarAdapter:
     ) -> pd.DataFrame:
         """Get US market earnings calendar."""
         try:
-            # Try Alpha Vantage first
-            await acquire_rate_limit('alphavantage', 'default')
+            await acquire_rate_limit('akshare', 'eastmoney')
             
-            # Get earnings calendar from Alpha Vantage
-            df = await call_alphavantage(
-                'EARNINGS_CALENDAR',
-                {
-                    'horizon': '3month',
-                    'symbol': symbols[0] if symbols else None
-                }
+            # Get US earnings data from EastMoney
+            df = await call_akshare(
+                ['stock_financial_us_report_em'],
+                {},
+                function_name='stock_financial_us_report_em'
             )
             
             if not df.empty:
+                # Filter by date range if specified
+                if start_date:
+                    df = df[df['report_date'] >= start_date]
+                if end_date:
+                    df = df[df['report_date'] <= end_date]
+                
+                # Filter by symbols if specified
+                if symbols:
+                    df = df[df['symbol'].isin(symbols)]
+                
                 df = self._standardize_us_columns(df)
                 return df
                 
         except Exception as e:
-            logger.warning(f"Failed to get Alpha Vantage earnings calendar: {e}")
-        
-        # Fallback to Yahoo Finance for individual symbols
-        if symbols:
-            results = []
-            for symbol in symbols[:10]:  # Limit to 10 symbols to avoid rate limiting
-                try:
-                    await acquire_rate_limit('yfinance', 'default')
-                    df = await call_yfinance(
-                        ['earnings_dates'],
-                        {'symbol': symbol},
-                        function_name='earnings_dates'
-                    )
-                    
-                    if not df.empty:
-                        df['symbol'] = symbol
-                        results.append(df)
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to get Yahoo Finance earnings for {symbol}: {e}")
-                    continue
+            logger.warning(f"Failed to get US earnings calendar from EastMoney: {e}")
             
-            if results:
-                combined_df = pd.concat(results, ignore_index=True)
-                return self._standardize_us_columns(combined_df)
+            # Fallback to Alpha Vantage
+            try:
+                await acquire_rate_limit('alphavantage', 'default')
+                
+                df = await call_alphavantage(
+                    'EARNINGS_CALENDAR',
+                    {
+                        'horizon': '3month',
+                        'symbol': symbols[0] if symbols else None
+                    }
+                )
+                
+                if not df.empty:
+                    df = self._standardize_us_columns(df)
+                    return df
+                    
+            except Exception as e2:
+                logger.warning(f"Failed to get Alpha Vantage earnings calendar: {e2}")
+            
+            # Fallback to Yahoo Finance for individual symbols
+            if symbols:
+                results = []
+                for symbol in symbols[:10]:  # Limit to 10 symbols to avoid rate limiting
+                    try:
+                        await acquire_rate_limit('yfinance', 'default')
+                        df = await call_yfinance(
+                            ['earnings_dates'],
+                            {'symbol': symbol},
+                            function_name='earnings_dates'
+                        )
+                        
+                        if not df.empty:
+                            df['symbol'] = symbol
+                            results.append(df)
+                            
+                    except Exception as e3:
+                        logger.warning(f"Failed to get Yahoo Finance earnings for {symbol}: {e3}")
+                        continue
+                
+                if results:
+                    combined_df = pd.concat(results, ignore_index=True)
+                    return self._standardize_us_columns(combined_df)
         
         return pd.DataFrame()
     
@@ -182,23 +208,48 @@ class EarningsCalendarAdapter:
         symbols: Optional[List[str]]
     ) -> pd.DataFrame:
         """Get Hong Kong market earnings calendar."""
-        # HK market data is limited, try to get from available sources
         try:
             await acquire_rate_limit('akshare', 'eastmoney')
             
-            # Try to get HK earnings data if available
+            # Get HK earnings data from EastMoney
             df = await call_akshare(
-                ['stock_financial_report_em'],
-                {'market': 'hk'},
-                function_name='stock_financial_report_em'
+                ['stock_financial_hk_report_em'],
+                {},
+                function_name='stock_financial_hk_report_em'
             )
             
             if not df.empty:
+                # Filter by date range if specified
+                if start_date:
+                    df = df[df['report_date'] >= start_date]
+                if end_date:
+                    df = df[df['report_date'] <= end_date]
+                
+                # Filter by symbols if specified
+                if symbols:
+                    df = df[df['symbol'].isin(symbols)]
+                
                 df = self._standardize_hk_columns(df)
                 return df
                 
         except Exception as e:
             logger.warning(f"Failed to get HK earnings calendar: {e}")
+            
+            # Fallback to Baidu for report time
+            try:
+                await acquire_rate_limit('akshare', 'baidu')
+                df = await call_akshare(
+                    ['news_report_time_baidu'],
+                    {'market': 'hk'},
+                    function_name='news_report_time_baidu'
+                )
+                
+                if not df.empty:
+                    df = self._standardize_baidu_columns(df)
+                    return df
+                    
+            except Exception as e2:
+                logger.warning(f"Failed to get Baidu HK earnings calendar: {e2}")
         
         return pd.DataFrame()
     
@@ -403,6 +454,30 @@ class EarningsCalendarAdapter:
         """Standardize column names for Hong Kong market data."""
         # Similar to CN but may have different column names
         return self._standardize_cn_columns(df)
+    
+    def _standardize_baidu_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Standardize column names for Baidu report time data."""
+        column_mapping = {
+            'symbol': 'symbol',
+            'company_name': 'company_name',
+            'report_date': 'report_date',
+            'report_period': 'report_period',
+            'report_type': 'report_type',
+            'source': 'source'
+        }
+        
+        # Rename columns that exist
+        existing_cols = {k: v for k, v in column_mapping.items() if k in df.columns}
+        if existing_cols:
+            df = df.rename(columns=existing_cols)
+        
+        # Ensure required columns exist
+        required_cols = ['symbol', 'report_date', 'report_period', 'report_type']
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = None
+        
+        return df
     
     def _standardize_forecast_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names for forecast data."""

@@ -9,7 +9,7 @@
 #### 1.1 国内 A 股财报日历
 
 **数据源：东方财富 (EastMoney)**
-- **接口**: `akshare.stock_financial_report_sina_by_report_date`
+- **接口**: `akshare.stock_financial_report_em`
 - **数据内容**: 
   - 报告期、报告类型（年报/中报/季报）
   - 公司代码、公司名称
@@ -28,7 +28,24 @@
 - **数据内容**: 官方披露信息，权威性高
 - **覆盖**: 深交所、上交所、北交所
 
-#### 1.2 美股财报日历
+#### 1.2 港股财报日历
+
+**数据源：东方财富 (EastMoney)**
+- **接口**: `akshare.stock_financial_hk_report_em`
+- **数据内容**: 港股三大财务报表数据
+- **特点**: 数据全面，更新及时
+
+**数据源：百度财经**
+- **接口**: `akshare.news_report_time_baidu`
+- **数据内容**: 财报发行时间信息
+- **特点**: 百度整理的财报时间表
+
+#### 1.3 美股财报日历
+
+**数据源：东方财富 (EastMoney)**
+- **接口**: `akshare.stock_financial_us_report_em`
+- **数据内容**: 美股三大财务报表数据
+- **特点**: 数据标准化程度高
 
 **数据源：Alpha Vantage**
 - **接口**: `EARNINGS_CALENDAR`
@@ -42,11 +59,6 @@
 - **接口**: `yfinance.Ticker.earnings_dates`
 - **数据内容**: 历史财报日期、预期/实际数据
 - **特点**: 免费，数据较全面
-
-**数据源：IEX Cloud**
-- **接口**: `/stock/{symbol}/earnings`
-- **数据内容**: 详细的财报信息
-- **限制**: 需要付费订阅
 
 ### 2. 异动预告日历
 
@@ -84,13 +96,23 @@
 
 #### 1.1 基础财务指标
 
-**数据源：东方财富**
+**数据源：东方财富 (A股)**
 - **接口**: `akshare.stock_financial_analysis_indicator`
 - **数据内容**: 
   - 盈利能力指标（ROE、ROA、毛利率等）
   - 成长能力指标（营收增长率、净利润增长率等）
   - 营运能力指标（存货周转率、应收账款周转率等）
   - 偿债能力指标（资产负债率、流动比率等）
+
+**数据源：东方财富 (港股)**
+- **接口**: `akshare.stock_financial_hk_analysis_indicator_em`
+- **数据内容**: 港股财务分析主要指标
+- **特点**: 港股专用，指标计算标准化
+
+**数据源：东方财富 (美股)**
+- **接口**: `akshare.stock_financial_us_analysis_indicator_em`
+- **数据内容**: 美股财务分析主要指标
+- **特点**: 美股专用，指标计算标准化
 
 **数据源：新浪财经**
 - **接口**: `akshare.stock_financial_analysis_indicator_sina`
@@ -99,7 +121,7 @@
 
 #### 1.2 财务报表数据
 
-**数据源：巨潮资讯网**
+**数据源：巨潮资讯网 (A股)**
 - **接口**: `akshare.stock_financial_report_em`
 - **数据内容**: 
   - 资产负债表
@@ -107,7 +129,17 @@
   - 现金流量表
 - **特点**: 官方数据，权威性高
 
-**数据源：东方财富**
+**数据源：东方财富 (港股)**
+- **接口**: `akshare.stock_financial_hk_report_em`
+- **数据内容**: 港股三大财务报表
+- **特点**: 港股专用，数据全面
+
+**数据源：东方财富 (美股)**
+- **接口**: `akshare.stock_financial_us_report_em`
+- **数据内容**: 美股三大财务报表
+- **特点**: 美股专用，数据标准化
+
+**数据源：东方财富 (A股)**
 - **接口**: `akshare.stock_financial_analysis_indicator`
 - **数据内容**: 三大报表的详细数据
 - **特点**: 数据全面，更新及时
@@ -126,6 +158,43 @@
 - **接口**: `yfinance.Ticker.financials`, `yfinance.Ticker.balance_sheet`
 - **数据内容**: 财务报表数据
 - **特点**: 免费，数据较新
+
+## 🏦 基金持仓变动数据源
+
+### 1. 基金持仓数据
+
+**数据源：东方财富**
+- **接口**: `akshare.fund_portfolio_hold_em`
+- **数据内容**: 
+  - 基金持仓股票明细
+  - 持仓数量、持仓市值、占净值比例
+  - 持仓变动情况
+- **特点**: 数据全面，更新及时
+
+**数据源：天天基金网**
+- **接口**: `akshare.fund_portfolio_hold_em`
+- **数据内容**: 基金持仓信息
+- **特点**: 官方数据，权威性高
+
+### 2. 基金重仓股数据
+
+**数据源：东方财富**
+- **接口**: `akshare.fund_portfolio_hold_em`
+- **数据内容**: 
+  - 基金重仓股票排名
+  - 持仓比例、持仓市值
+  - 持仓变动趋势
+- **特点**: 便于分析基金投资偏好
+
+### 3. 基金调仓数据
+
+**数据源：东方财富**
+- **接口**: `akshare.fund_portfolio_hold_em`
+- **数据内容**: 
+  - 基金调仓记录
+  - 新增持仓、减仓股票
+  - 调仓时间、调仓原因
+- **特点**: 跟踪基金投资策略变化
 
 ## 🏗️ 技术实现方案
 
@@ -165,7 +234,12 @@
 - **报表数据**: 三大报表数据的获取和存储
 - **数据分析**: 财务指标趋势分析、对比分析
 
-#### 2.3 数据同步策略
+#### 2.3 基金持仓管理
+- **持仓数据**: 获取、更新、查询基金持仓信息
+- **调仓分析**: 分析基金投资策略变化
+- **重仓股跟踪**: 跟踪基金重仓股票变动
+
+#### 2.4 数据同步策略
 - **实时同步**: 重要公告实时获取
 - **定时同步**: 定期更新财务数据
 - **增量同步**: 只更新变化的数据
@@ -200,6 +274,19 @@ class FinancialDataAdapter:
         pass
 ```
 
+#### 1.3 基金持仓适配器
+```python
+# src/ak_unified/adapters/fund_portfolio_adapter.py
+class FundPortfolioAdapter:
+    async def get_fund_portfolio(self, fund_code: str) -> pd.DataFrame:
+        """获取基金持仓"""
+        pass
+    
+    async def get_fund_holdings_change(self, fund_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取基金持仓变动"""
+        pass
+```
+
 ### 2. 新增 API 端点
 
 #### 2.1 事件日历端点
@@ -207,8 +294,8 @@ class FinancialDataAdapter:
 @app.get("/rpc/earnings/calendar")
 async def get_earnings_calendar(
     market: str = Query(...),
-    start_date: str = Query(...),
-    end_date: str = Query(...)
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
 ) -> Dict[str, Any]:
     """获取财报日历"""
     pass
@@ -216,7 +303,7 @@ async def get_earnings_calendar(
 @app.get("/rpc/earnings/forecast")
 async def get_earnings_forecast(
     symbol: str = Query(...),
-    period: str = Query(...)
+    period: Optional[str] = Query(None)
 ) -> Dict[str, Any]:
     """获取业绩预告"""
     pass
@@ -242,6 +329,25 @@ async def get_financial_statements(
     pass
 ```
 
+#### 2.3 基金持仓端点
+```python
+@app.get("/rpc/fund/portfolio")
+async def get_fund_portfolio(
+    fund_code: str = Query(...)
+) -> Dict[str, Any]:
+    """获取基金持仓"""
+    pass
+
+@app.get("/rpc/fund/holdings_change")
+async def get_fund_holdings_change(
+    fund_code: str = Query(...),
+    start_date: str = Query(...),
+    end_date: str = Query(...)
+) -> Dict[str, Any]:
+    """获取基金持仓变动"""
+    pass
+```
+
 ### 3. 数据模型设计
 
 #### 3.1 事件日历模型
@@ -249,7 +355,7 @@ async def get_financial_statements(
 # src/ak_unified/schemas/events.py
 class EarningsEvent(BaseModel):
     symbol: str
-    company_name: str
+    company_name: Optional[str]
     report_period: str
     report_type: str  # annual, semi_annual, quarterly
     scheduled_date: Optional[datetime]
@@ -259,17 +365,19 @@ class EarningsEvent(BaseModel):
     revenue_estimate: Optional[float]
     revenue_actual: Optional[float]
     source: str
+    market: str
     created_at: datetime
     updated_at: datetime
 
 class EarningsForecast(BaseModel):
     symbol: str
-    forecast_type: str  # pre_increase, pre_decrease, turn_profit, etc.
     forecast_period: str
+    forecast_type: str  # pre_increase, pre_decrease, turn_profit, etc.
     net_profit_change: Optional[float]
     change_reason: Optional[str]
     announcement_date: datetime
     source: str
+    market: str
 ```
 
 #### 3.2 财务数据模型
@@ -282,6 +390,7 @@ class FinancialIndicator(BaseModel):
     indicator_value: float
     unit: Optional[str]
     source: str
+    market: str
     report_date: datetime
 
 class FinancialStatement(BaseModel):
@@ -291,6 +400,29 @@ class FinancialStatement(BaseModel):
     report_date: datetime
     data: Dict[str, Any]  # 具体的财务数据
     source: str
+    market: str
+```
+
+#### 3.3 基金持仓模型
+```python
+# src/ak_unified/schemas/fund.py
+class FundPortfolio(BaseModel):
+    fund_code: str
+    fund_name: str
+    report_date: datetime
+    total_assets: Optional[float]
+    stock_holdings: List[StockHolding]
+    source: str
+    created_at: datetime
+
+class StockHolding(BaseModel):
+    symbol: str
+    stock_name: str
+    shares: int
+    market_value: float
+    percentage: float
+    change_shares: Optional[int]
+    change_percentage: Optional[float]
 ```
 
 ## 🚀 实施优先级
@@ -302,12 +434,13 @@ class FinancialStatement(BaseModel):
 
 ### 2. 第二阶段（扩展功能）
 - [ ] 业绩预告数据获取
-- [ ] 美股财报数据（Alpha Vantage + Yahoo Finance）
-- [ ] 数据分析和可视化
+- [ ] 港股和美股财报数据
+- [ ] 基金持仓数据获取
 
 ### 3. 第三阶段（高级功能）
 - [ ] 智能提醒系统
 - [ ] 财务指标趋势分析
+- [ ] 基金调仓分析
 - [ ] 多数据源数据融合
 
 ## 📊 数据质量评估
@@ -316,6 +449,7 @@ class FinancialStatement(BaseModel):
 - **东方财富**: ⭐⭐⭐⭐⭐ (官方数据，准确性高)
 - **巨潮资讯网**: ⭐⭐⭐⭐⭐ (官方披露，权威性最高)
 - **新浪财经**: ⭐⭐⭐⭐ (数据整理规范)
+- **百度财经**: ⭐⭐⭐⭐ (财报时间信息准确)
 - **Alpha Vantage**: ⭐⭐⭐⭐ (数据标准化程度高)
 - **Yahoo Finance**: ⭐⭐⭐ (免费数据，质量一般)
 
@@ -323,6 +457,7 @@ class FinancialStatement(BaseModel):
 - **东方财富**: ⭐⭐⭐⭐⭐ (覆盖全面)
 - **巨潮资讯网**: ⭐⭐⭐⭐⭐ (官方要求，完整性最高)
 - **新浪财经**: ⭐⭐⭐⭐ (主要指标覆盖)
+- **百度财经**: ⭐⭐⭐⭐ (财报时间覆盖全面)
 - **Alpha Vantage**: ⭐⭐⭐⭐ (美股数据完整)
 - **Yahoo Finance**: ⭐⭐⭐ (基础数据完整)
 
@@ -330,6 +465,7 @@ class FinancialStatement(BaseModel):
 - **东方财富**: ⭐⭐⭐⭐⭐ (实时更新)
 - **巨潮资讯网**: ⭐⭐⭐⭐⭐ (官方实时披露)
 - **新浪财经**: ⭐⭐⭐⭐ (更新及时)
+- **百度财经**: ⭐⭐⭐⭐ (财报时间更新及时)
 - **Alpha Vantage**: ⭐⭐⭐⭐ (API 实时)
 - **Yahoo Finance**: ⭐⭐⭐ (有一定延迟)
 
@@ -337,7 +473,7 @@ class FinancialStatement(BaseModel):
 
 ### 1. 数据源选择策略
 - **主要数据源**: 东方财富 + 巨潮资讯网（国内）
-- **辅助数据源**: Alpha Vantage + Yahoo Finance（美股）
+- **辅助数据源**: 百度财经（财报时间）、Alpha Vantage + Yahoo Finance（美股）
 - **备用数据源**: 新浪财经、同花顺等
 
 ### 2. 缓存策略
@@ -354,9 +490,10 @@ class FinancialStatement(BaseModel):
 
 通过调研，我们确定了以下关键数据源和实现方案：
 
-1. **事件日历**: 以东方财富和巨潮资讯网为主要数据源
+1. **事件日历**: 以东方财富、巨潮资讯网和百度财经为主要数据源
 2. **财报数据**: 结合多个数据源，确保数据完整性和准确性
-3. **技术架构**: 采用分层设计，支持多数据源适配
-4. **实施路径**: 分阶段实施，优先实现核心功能
+3. **基金持仓**: 以东方财富为主要数据源，获取基金持仓和调仓信息
+4. **技术架构**: 采用分层设计，支持多数据源适配
+5. **实施路径**: 分阶段实施，优先实现核心功能
 
-这个方案将为 AK Unified 项目提供全面的个股事件日历和财报数据支持，满足用户对财务信息的需求。
+这个方案将为 AK Unified 项目提供全面的个股事件日历、财报数据和基金持仓信息支持，满足用户对财务信息的全面需求。
